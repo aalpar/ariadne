@@ -73,6 +73,14 @@ Users extend the graph by calling `NewRuleResolver("my-crd", ...rules)` with the
 
 `rules.go` uses dot-separated paths with `[*]` for slice wildcards: `spec.volumes[*].configMap.name`. This is parsed by `extractFieldValues` / `extractRecursive`, not a full JSONPath implementation.
 
+### Label selector parsing
+
+`LabelSelectorRule` auto-detects two selector formats via `extractSelector`:
+- **Full LabelSelector** (`matchLabels` + `matchExpressions`): parsed via `metav1.LabelSelectorAsSelector()`. Used by NetworkPolicy, PodDisruptionBudget, Deployments, etc.
+- **Flat map** (`map[string]string`): parsed via `labels.SelectorFromSet()`. Used by Service `spec.selector`.
+
+Rule authors don't need to know which format their selector uses — `SelectorFieldPath` points to the selector object and the resolver figures it out.
+
 ## Testing patterns
 
 - Tests are `_test.go` files in `package ariadne` (white-box)
