@@ -176,6 +176,42 @@ func NewStructuralResolver() Resolver {
 			FromKind: "Pod", ToKind: "Secret",
 			FieldPath: "spec.ephemeralContainers[*].env[*].valueFrom.secretKeyRef.name",
 		},
+
+		// Typed references
+
+		// HPA -> scaleTargetRef (unconstrained: any kind)
+		RefRule{
+			FromGroup: "autoscaling", FromKind: "HorizontalPodAutoscaler",
+			FieldPath: "spec.scaleTargetRef",
+		},
+		// RoleBinding -> roleRef (constrained to rbac.authorization.k8s.io)
+		RefRule{
+			FromGroup: "rbac.authorization.k8s.io", FromKind: "RoleBinding",
+			ToGroup:   "rbac.authorization.k8s.io",
+			FieldPath: "roleRef",
+		},
+		// RoleBinding -> subjects (ServiceAccount, etc.)
+		RefRule{
+			FromGroup: "rbac.authorization.k8s.io", FromKind: "RoleBinding",
+			FieldPath: "subjects[*]",
+		},
+		// ClusterRoleBinding -> roleRef
+		RefRule{
+			FromGroup: "rbac.authorization.k8s.io", FromKind: "ClusterRoleBinding",
+			ToGroup:   "rbac.authorization.k8s.io",
+			FieldPath: "roleRef",
+		},
+		// ClusterRoleBinding -> subjects (ServiceAccount, etc.)
+		RefRule{
+			FromGroup: "rbac.authorization.k8s.io", FromKind: "ClusterRoleBinding",
+			FieldPath: "subjects[*]",
+		},
+		// PV -> PVC (claimRef with explicit namespace)
+		RefRule{
+			FromKind:  "PersistentVolume",
+			ToKind:    "PersistentVolumeClaim",
+			FieldPath: "spec.claimRef",
+		},
 	)
 
 	return &structuralResolver{rules: rules}

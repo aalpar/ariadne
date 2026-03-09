@@ -139,10 +139,14 @@ func resolveBareName(ref ObjectRef, name string, index int, namespaces []string,
 		Name:      name,
 	}
 	if _, ok := lookup.Get(sameNS); ok {
+		edgeType := EdgeLocalNameRef
+		if ref.Namespace == "" {
+			edgeType = EdgeNameRef
+		}
 		return []Edge{{
 			From:     ref,
 			To:       sameNS,
-			Type:     EdgeLocalNameRef,
+			Type:     edgeType,
 			Resolver: "rule",
 			Field:    rule.FieldPath,
 		}}
@@ -197,10 +201,14 @@ func resolveTypedRef(ref ObjectRef, m map[string]interface{}, rule RefRule, look
 	sameNS := toRef
 	sameNS.Namespace = ref.Namespace
 	if _, ok := lookup.Get(sameNS); ok {
+		edgeType := EdgeLocalNameRef
+		if ref.Namespace == "" {
+			edgeType = EdgeNameRef
+		}
 		return []Edge{{
 			From:     ref,
 			To:       sameNS,
-			Type:     EdgeLocalNameRef,
+			Type:     edgeType,
 			Resolver: "rule",
 			Field:    rule.FieldPath,
 		}}

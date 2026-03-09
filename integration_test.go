@@ -131,3 +131,265 @@ func TestIntegration_FullStack(t *testing.T) {
 		t.Fatalf("expected at least 4 upstream of svc, got %d: %v", len(upstream), upstream)
 	}
 }
+
+func TestIntegration_HPAScaleTargetRef(t *testing.T) {
+	g := NewDefault()
+
+	objs := []unstructured.Unstructured{
+		// Deployment
+		{Object: map[string]interface{}{
+			"apiVersion": "apps/v1", "kind": "Deployment",
+			"metadata": map[string]interface{}{
+				"name": "web", "namespace": "default",
+			},
+		}},
+		// HPA targeting the Deployment
+		{Object: map[string]interface{}{
+			"apiVersion": "autoscaling/v2", "kind": "HorizontalPodAutoscaler",
+			"metadata": map[string]interface{}{
+				"name": "web-hpa", "namespace": "default",
+			},
+			"spec": map[string]interface{}{
+				"scaleTargetRef": map[string]interface{}{
+					"apiVersion": "apps/v1",
+					"kind":       "Deployment",
+					"name":       "web",
+				},
+			},
+		}},
+	}
+
+	g.Load(objs)
+
+	hpaRef := ObjectRef{Group: "autoscaling", Kind: "HorizontalPodAutoscaler", Namespace: "default", Name: "web-hpa"}
+	deps := g.DependenciesOf(hpaRef)
+	if len(deps) != 1 {
+		t.Fatalf("expected 1 HPA dep, got %d: %v", len(deps), deps)
+	}
+	expected := ObjectRef{Group: "apps", Kind: "Deployment", Namespace: "default", Name: "web"}
+	if deps[0].To != expected {
+		t.Fatalf("expected HPA -> Deployment, got %v", deps[0].To)
+	}
+
+	// Deployment should be a dependent of... nothing (it has no deps),
+	// but HPA should appear as a dependent OF the Deployment.
+	depRef := ObjectRef{Group: "apps", Kind: "Deployment", Namespace: "default", Name: "web"}
+	dependents := g.DependentsOf(depRef)
+	if len(dependents) != 1 {
+		t.Fatalf("expected 1 dependent of Deployment, got %d: %v", len(dependents), dependents)
+	}
+	if dependents[0].From != hpaRef {
+		t.Fatalf("expected HPA as dependent, got %v", dependents[0].From)
+	}
+}
+
+func TestIntegration_HPAScaleTargetRef_ReverseAdd(t *testing.T) {
+	g := NewDefault()
+
+	// Add HPA first, then the Deployment — tests reverse resolution via Add.
+	hpa := unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "autoscaling/v2", "kind": "HorizontalPodAutoscaler",
+		"metadata": map[string]interface{}{
+			"name": "web-hpa", "namespace": "default",
+		},
+		"spec": map[string]interface{}{
+			"scaleTargetRef": map[string]interface{}{
+				"apiVersion": "apps/v1",
+				"kind":       "Deployment",
+				"name":       "web",
+			},
+		},
+	}}
+	g.Add(hpa)
+
+	// No edge yet — Deployment isn't in the graph.
+	hpaRef := ObjectRef{Group: "autoscaling", Kind: "HorizontalPodAutoscaler", Namespace: "default", Name: "web-hpa"}
+	if len(g.DependenciesOf(hpaRef)) != 0 {
+		t.Fatal("expected 0 deps before Deployment is added")
+	}
+
+	deploy := unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "apps/v1", "kind": "Deployment",
+		"metadata": map[string]interface{}{
+			"name": "web", "namespace": "default",
+		},
+	}}
+	g.Add(deploy)
+
+	// Now the reverse path should have created the edge.
+	deps := g.DependenciesOf(hpaRef)
+	if len(deps) != 1 {
+		t.Fatalf("expected 1 HPA dep after reverse add, got %d: %v", len(deps), deps)
+	}
+}
+
+func TestIntegration_RoleBindingTypedRef(t *testing.T) {
+	g := NewDefault()
+
+	objs := []unstructured.Unstructured{
+		// Role
+		{Object: map[string]interface{}{
+			"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "Role",
+			"metadata": map[string]interface{}{
+				"name": "pod-reader", "namespace": "default",
+			},
+		}},
+		// ServiceAccount
+		{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "ServiceAccount",
+			"metadata": map[string]interface{}{
+				"name": "reader-sa", "namespace": "default",
+			},
+		}},
+		// RoleBinding -> Role + ServiceAccount
+		{Object: map[string]interface{}{
+			"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "RoleBinding",
+			"metadata": map[string]interface{}{
+				"name": "read-pods", "namespace": "default",
+			},
+			"roleRef": map[string]interface{}{
+				"apiGroup": "rbac.authorization.k8s.io",
+				"kind":     "Role",
+				"name":     "pod-reader",
+			},
+			"subjects": []interface{}{
+				map[string]interface{}{
+					"kind":      "ServiceAccount",
+					"name":      "reader-sa",
+					"namespace": "default",
+				},
+			},
+		}},
+	}
+
+	g.Load(objs)
+
+	rbRef := ObjectRef{Group: "rbac.authorization.k8s.io", Kind: "RoleBinding", Namespace: "default", Name: "read-pods"}
+	deps := g.DependenciesOf(rbRef)
+	if len(deps) != 2 {
+		t.Fatalf("expected 2 RoleBinding deps (Role + SA), got %d: %v", len(deps), deps)
+	}
+
+	roleRef := ObjectRef{Group: "rbac.authorization.k8s.io", Kind: "Role", Namespace: "default", Name: "pod-reader"}
+	saRef := ObjectRef{Kind: "ServiceAccount", Namespace: "default", Name: "reader-sa"}
+
+	found := map[ObjectRef]bool{}
+	for _, e := range deps {
+		found[e.To] = true
+	}
+	if !found[roleRef] {
+		t.Fatal("expected RoleBinding -> Role edge")
+	}
+	if !found[saRef] {
+		t.Fatal("expected RoleBinding -> ServiceAccount edge")
+	}
+}
+
+func TestIntegration_ClusterRoleBindingTypedRef(t *testing.T) {
+	g := NewDefault()
+
+	objs := []unstructured.Unstructured{
+		// ClusterRole (cluster-scoped)
+		{Object: map[string]interface{}{
+			"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRole",
+			"metadata": map[string]interface{}{
+				"name": "admin",
+			},
+		}},
+		// ServiceAccount in "kube-system"
+		{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "ServiceAccount",
+			"metadata": map[string]interface{}{
+				"name": "admin-sa", "namespace": "kube-system",
+			},
+		}},
+		// ClusterRoleBinding (cluster-scoped) -> ClusterRole + SA in kube-system
+		{Object: map[string]interface{}{
+			"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRoleBinding",
+			"metadata": map[string]interface{}{
+				"name": "admin-binding",
+			},
+			"roleRef": map[string]interface{}{
+				"apiGroup": "rbac.authorization.k8s.io",
+				"kind":     "ClusterRole",
+				"name":     "admin",
+			},
+			"subjects": []interface{}{
+				map[string]interface{}{
+					"kind":      "ServiceAccount",
+					"name":      "admin-sa",
+					"namespace": "kube-system",
+				},
+			},
+		}},
+	}
+
+	g.Load(objs)
+
+	crbRef := ObjectRef{Group: "rbac.authorization.k8s.io", Kind: "ClusterRoleBinding", Name: "admin-binding"}
+	deps := g.DependenciesOf(crbRef)
+	if len(deps) != 2 {
+		t.Fatalf("expected 2 ClusterRoleBinding deps, got %d: %v", len(deps), deps)
+	}
+
+	crRef := ObjectRef{Group: "rbac.authorization.k8s.io", Kind: "ClusterRole", Name: "admin"}
+	saRef := ObjectRef{Kind: "ServiceAccount", Namespace: "kube-system", Name: "admin-sa"}
+
+	found := map[ObjectRef]bool{}
+	for _, e := range deps {
+		found[e.To] = true
+	}
+	if !found[crRef] {
+		t.Fatal("expected ClusterRoleBinding -> ClusterRole edge")
+	}
+	if !found[saRef] {
+		t.Fatal("expected ClusterRoleBinding -> ServiceAccount edge")
+	}
+}
+
+func TestIntegration_PVClaimRef(t *testing.T) {
+	g := NewDefault()
+
+	objs := []unstructured.Unstructured{
+		// PVC in "production" namespace
+		{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "PersistentVolumeClaim",
+			"metadata": map[string]interface{}{
+				"name": "data-pvc", "namespace": "production",
+			},
+		}},
+		// PV (cluster-scoped) with claimRef pointing to the PVC
+		{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "PersistentVolume",
+			"metadata": map[string]interface{}{
+				"name": "data-pv",
+			},
+			"spec": map[string]interface{}{
+				"claimRef": map[string]interface{}{
+					"apiVersion": "v1",
+					"kind":       "PersistentVolumeClaim",
+					"name":       "data-pvc",
+					"namespace":  "production",
+				},
+			},
+		}},
+	}
+
+	g.Load(objs)
+
+	pvRef := ObjectRef{Kind: "PersistentVolume", Name: "data-pv"}
+	deps := g.DependenciesOf(pvRef)
+	if len(deps) != 1 {
+		t.Fatalf("expected 1 PV dep, got %d: %v", len(deps), deps)
+	}
+	pvcRef := ObjectRef{Kind: "PersistentVolumeClaim", Namespace: "production", Name: "data-pvc"}
+	if deps[0].To != pvcRef {
+		t.Fatalf("expected PV -> PVC, got %v", deps[0].To)
+	}
+
+	// PVC should also have PV as dependent
+	dependents := g.DependentsOf(pvcRef)
+	if len(dependents) != 1 {
+		t.Fatalf("expected 1 dependent of PVC, got %d: %v", len(dependents), dependents)
+	}
+}
