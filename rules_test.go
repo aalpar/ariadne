@@ -282,6 +282,103 @@ func TestRefRule_ClusterScoped(t *testing.T) {
 	}
 }
 
+func TestRefRule_Reverse(t *testing.T) {
+	rule := RefRule{
+		FromKind: "Pod", ToKind: "ConfigMap",
+		FieldPath: "spec.volumes[*].configMap.name",
+	}
+	r := NewRuleResolver("test", rule)
+
+	// The ConfigMap is the object being added (target).
+	cm := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "ConfigMap",
+		"metadata": map[string]interface{}{
+			"name": "app-config", "namespace": "default",
+		},
+	}}
+
+	// A Pod that references it already exists in the graph.
+	pod := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Pod",
+		"metadata": map[string]interface{}{
+			"name": "web", "namespace": "default",
+		},
+		"spec": map[string]interface{}{
+			"volumes": []interface{}{
+				map[string]interface{}{
+					"configMap": map[string]interface{}{"name": "app-config"},
+				},
+			},
+		},
+	}}
+
+	lookup := &stubLookup{
+		objects: map[ObjectRef]*unstructured.Unstructured{
+			{Kind: "Pod", Namespace: "default", Name: "web"}: pod,
+		},
+	}
+
+	edges := r.Resolve(cm, lookup)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 reverse edge, got %d", len(edges))
+	}
+	if edges[0].From.Kind != "Pod" || edges[0].From.Name != "web" {
+		t.Fatalf("expected edge from Pod/web, got %v", edges[0].From)
+	}
+	if edges[0].To.Kind != "ConfigMap" || edges[0].To.Name != "app-config" {
+		t.Fatalf("expected edge to ConfigMap/app-config, got %v", edges[0].To)
+	}
+	if edges[0].Type != EdgeLocalNameRef {
+		t.Fatalf("expected EdgeLocalNameRef, got %v", edges[0].Type)
+	}
+}
+
+func TestRefRule_ReverseWithNamespace(t *testing.T) {
+	rule := RefRule{
+		FromGroup: "example.com", FromKind: "MyResource",
+		ToKind:             "Service",
+		FieldPath:          "spec.backendRef.name",
+		NamespaceFieldPath: "spec.backendRef.namespace",
+	}
+	r := NewRuleResolver("test", rule)
+
+	// The Service is the object being added.
+	svc := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Service",
+		"metadata": map[string]interface{}{
+			"name": "backend", "namespace": "prod",
+		},
+	}}
+
+	// A MyResource in a different namespace references it via explicit namespace.
+	myRes := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "example.com/v1", "kind": "MyResource",
+		"metadata": map[string]interface{}{
+			"name": "my-res", "namespace": "staging",
+		},
+		"spec": map[string]interface{}{
+			"backendRef": map[string]interface{}{
+				"name":      "backend",
+				"namespace": "prod",
+			},
+		},
+	}}
+
+	lookup := &stubLookup{
+		objects: map[ObjectRef]*unstructured.Unstructured{
+			{Group: "example.com", Kind: "MyResource", Namespace: "staging", Name: "my-res"}: myRes,
+		},
+	}
+
+	edges := r.Resolve(svc, lookup)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 reverse edge, got %d", len(edges))
+	}
+	if edges[0].From.Name != "my-res" || edges[0].To.Name != "backend" {
+		t.Fatalf("unexpected edge: %v -> %v", edges[0].From, edges[0].To)
+	}
+}
+
 // stubLookup is a simple Lookup implementation for unit tests.
 type stubLookup struct {
 	objects map[ObjectRef]*unstructured.Unstructured

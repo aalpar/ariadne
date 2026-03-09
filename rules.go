@@ -245,7 +245,64 @@ func resolveRef(ref ObjectRef, obj *unstructured.Unstructured, rule RefRule, loo
 }
 
 func resolveRefReverse(ref ObjectRef, obj *unstructured.Unstructured, rule RefRule, lookup Lookup) []Edge {
-	return nil // implemented in Task 2
+	if ref.Group != rule.ToGroup || ref.Kind != rule.ToKind {
+		return nil
+	}
+
+	var sources []*unstructured.Unstructured
+	if rule.NamespaceFieldPath != "" {
+		// Explicit namespace field: any namespace can reference this target.
+		sources = lookup.List(rule.FromGroup, rule.FromKind)
+	} else if ref.Namespace != "" {
+		// Same-namespace defaulting: only sources in target's namespace.
+		sources = lookup.ListInNamespace(rule.FromGroup, rule.FromKind, ref.Namespace)
+	} else {
+		// Cluster-scoped target: any namespace's source could reference it.
+		sources = lookup.List(rule.FromGroup, rule.FromKind)
+	}
+
+	var edges []Edge
+	for _, src := range sources {
+		srcRef := RefFromUnstructured(src)
+		names := extractFieldValues(src.Object, rule.FieldPath)
+
+		if rule.NamespaceFieldPath != "" {
+			namespaces := extractFieldValues(src.Object, rule.NamespaceFieldPath)
+			for i, name := range names {
+				ns := srcRef.Namespace
+				if i < len(namespaces) {
+					ns = namespaces[i]
+				}
+				if name == ref.Name && ns == ref.Namespace {
+					edges = append(edges, Edge{
+						From:     srcRef,
+						To:       ref,
+						Type:     EdgeNameRef,
+						Resolver: "rule",
+						Field:    rule.FieldPath,
+					})
+				}
+			}
+			continue
+		}
+
+		for _, name := range names {
+			if name == ref.Name {
+				edgeType := EdgeLocalNameRef
+				if ref.Namespace == "" {
+					edgeType = EdgeNameRef
+				}
+				edges = append(edges, Edge{
+					From:     srcRef,
+					To:       ref,
+					Type:     edgeType,
+					Resolver: "rule",
+					Field:    rule.FieldPath,
+				})
+			}
+		}
+	}
+	return edges
 }
 
 func resolveNamespacedNameRef(ref ObjectRef, obj *unstructured.Unstructured, rule NamespacedNameRefRule, lookup Lookup) []Edge {
