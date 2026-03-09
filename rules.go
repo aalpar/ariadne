@@ -26,6 +26,20 @@ type Rule interface {
 	rule() // marker method
 }
 
+// RefRule matches a field that contains the name of a target resource.
+// When NamespaceFieldPath is set, the namespace is read from the object.
+// When empty, resolution tries the source's namespace first, then
+// cluster-scoped (""). At most one matches because K8s does not allow
+// the same GroupKind to be both namespaced and cluster-scoped.
+type RefRule struct {
+	FromGroup, FromKind string
+	ToGroup, ToKind     string
+	FieldPath           string // path to name value(s)
+	NamespaceFieldPath  string // optional: path to namespace value(s)
+}
+
+func (RefRule) rule() {}
+
 // NameRefRule matches a field that contains the name of a target resource.
 type NameRefRule struct {
 	FromGroup, FromKind string
@@ -78,6 +92,8 @@ func (r *ruleResolver) Resolve(obj *unstructured.Unstructured, lookup Lookup) []
 			edges = append(edges, resolveNameRef(ref, obj, rule, lookup)...)
 		case NamespacedNameRefRule:
 			edges = append(edges, resolveNamespacedNameRef(ref, obj, rule, lookup)...)
+		case RefRule:
+			edges = append(edges, resolveRef(ref, obj, rule, lookup)...)
 		case LabelSelectorRule:
 			edges = append(edges, resolveLabelSelector(ref, obj, rule, lookup)...)
 		}
@@ -152,6 +168,84 @@ func resolveNameRefReverse(ref ObjectRef, obj *unstructured.Unstructured, rule N
 		}
 	}
 	return edges
+}
+
+func resolveRef(ref ObjectRef, obj *unstructured.Unstructured, rule RefRule, lookup Lookup) []Edge {
+	if ref.Group != rule.FromGroup || ref.Kind != rule.FromKind {
+		return resolveRefReverse(ref, obj, rule, lookup)
+	}
+
+	names := extractFieldValues(obj.Object, rule.FieldPath)
+	if len(names) == 0 {
+		return nil
+	}
+
+	var edges []Edge
+
+	if rule.NamespaceFieldPath != "" {
+		namespaces := extractFieldValues(obj.Object, rule.NamespaceFieldPath)
+		for i, name := range names {
+			ns := ref.Namespace
+			if i < len(namespaces) {
+				ns = namespaces[i]
+			}
+			toRef := ObjectRef{
+				Group:     rule.ToGroup,
+				Kind:      rule.ToKind,
+				Namespace: ns,
+				Name:      name,
+			}
+			if _, ok := lookup.Get(toRef); ok {
+				edges = append(edges, Edge{
+					From:     ref,
+					To:       toRef,
+					Type:     EdgeNameRef,
+					Resolver: "rule",
+					Field:    rule.FieldPath,
+				})
+			}
+		}
+		return edges
+	}
+
+	// No NamespaceFieldPath: try same-namespace, then cluster-scoped.
+	for _, name := range names {
+		sameNS := ObjectRef{
+			Group:     rule.ToGroup,
+			Kind:      rule.ToKind,
+			Namespace: ref.Namespace,
+			Name:      name,
+		}
+		if _, ok := lookup.Get(sameNS); ok {
+			edges = append(edges, Edge{
+				From:     ref,
+				To:       sameNS,
+				Type:     EdgeLocalNameRef,
+				Resolver: "rule",
+				Field:    rule.FieldPath,
+			})
+			continue
+		}
+		clusterScoped := ObjectRef{
+			Group: rule.ToGroup,
+			Kind:  rule.ToKind,
+			Name:  name,
+		}
+		if _, ok := lookup.Get(clusterScoped); ok {
+			edges = append(edges, Edge{
+				From:     ref,
+				To:       clusterScoped,
+				Type:     EdgeNameRef,
+				Resolver: "rule",
+				Field:    rule.FieldPath,
+			})
+		}
+	}
+	return edges
+}
+
+func resolveRefReverse(ref ObjectRef, obj *unstructured.Unstructured, rule RefRule, lookup Lookup) []Edge {
+	return nil // implemented in Task 2
 }
 
 func resolveNamespacedNameRef(ref ObjectRef, obj *unstructured.Unstructured, rule NamespacedNameRefRule, lookup Lookup) []Edge {

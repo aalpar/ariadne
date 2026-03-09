@@ -198,6 +198,90 @@ func TestLabelSelectorRule(t *testing.T) {
 	}
 }
 
+func TestRefRule_SameNamespace(t *testing.T) {
+	r := NewRuleResolver("test", RefRule{
+		FromKind: "Pod", ToKind: "ConfigMap",
+		FieldPath: "spec.volumes[*].configMap.name",
+	})
+
+	pod := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Pod",
+		"metadata": map[string]interface{}{
+			"name": "web", "namespace": "default",
+		},
+		"spec": map[string]interface{}{
+			"volumes": []interface{}{
+				map[string]interface{}{
+					"configMap": map[string]interface{}{"name": "app-config"},
+				},
+			},
+		},
+	}}
+
+	cm := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "ConfigMap",
+		"metadata": map[string]interface{}{
+			"name": "app-config", "namespace": "default",
+		},
+	}}
+
+	lookup := &stubLookup{
+		objects: map[ObjectRef]*unstructured.Unstructured{
+			{Kind: "ConfigMap", Namespace: "default", Name: "app-config"}: cm,
+		},
+	}
+
+	edges := r.Resolve(pod, lookup)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(edges))
+	}
+	if edges[0].To.Kind != "ConfigMap" || edges[0].To.Name != "app-config" {
+		t.Fatalf("unexpected target: %v", edges[0].To)
+	}
+	if edges[0].Type != EdgeLocalNameRef {
+		t.Fatalf("expected EdgeLocalNameRef, got %v", edges[0].Type)
+	}
+}
+
+func TestRefRule_ClusterScoped(t *testing.T) {
+	r := NewRuleResolver("test", RefRule{
+		FromKind: "PersistentVolumeClaim", ToKind: "PersistentVolume",
+		FieldPath: "spec.volumeName",
+	})
+
+	pvc := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "PersistentVolumeClaim",
+		"metadata": map[string]interface{}{
+			"name": "my-pvc", "namespace": "default",
+		},
+		"spec": map[string]interface{}{
+			"volumeName": "my-pv",
+		},
+	}}
+
+	pv := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "PersistentVolume",
+		"metadata": map[string]interface{}{"name": "my-pv"},
+	}}
+
+	lookup := &stubLookup{
+		objects: map[ObjectRef]*unstructured.Unstructured{
+			{Kind: "PersistentVolume", Name: "my-pv"}: pv,
+		},
+	}
+
+	edges := r.Resolve(pvc, lookup)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(edges))
+	}
+	if edges[0].To.Namespace != "" {
+		t.Fatalf("expected cluster-scoped target, got ns=%q", edges[0].To.Namespace)
+	}
+	if edges[0].Type != EdgeNameRef {
+		t.Fatalf("expected EdgeNameRef for cluster-scoped, got %v", edges[0].Type)
+	}
+}
+
 // stubLookup is a simple Lookup implementation for unit tests.
 type stubLookup struct {
 	objects map[ObjectRef]*unstructured.Unstructured
