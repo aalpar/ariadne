@@ -48,7 +48,7 @@ Single-package library (`package ariadne`). All source files are at the repo roo
 | `resolver.go` | `Resolver` and `Lookup` interfaces |
 | `graph.go` | `Graph` struct, `New`/`NewDefault`, `Add`/`Remove`/`Load`, query methods, `graphLookup` |
 | `rules.go` | Declarative rule types (`RefRule`, `LabelSelectorRule`), `NewRuleResolver`, field path extraction |
-| `structural.go` | Built-in resolver for known K8s references (Pod→SA, Pod→ConfigMap, ownerRefs, etc.) |
+| `structural.go` | Built-in resolver for known K8s references (30 RefRules for Pod, PVC, PV, Ingress, StatefulSet refs + ownerRefs) |
 | `selector.go` | Built-in resolver for label/selector matching (Service→Pod, NetworkPolicy→Pod) |
 | `event.go` | Built-in resolver for K8s Event→involvedObject edges |
 | `topo.go` | `TopologicalSort` (Kahn's algorithm), `Cycles` (DFS) |
