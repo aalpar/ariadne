@@ -24,51 +24,51 @@ import (
 func NewStructuralResolver() Resolver {
 	rules := NewRuleResolver("structural",
 		// Pod -> ServiceAccount
-		NameRefRule{
+		RefRule{
 			FromKind: "Pod", ToKind: "ServiceAccount",
-			FieldPath: "spec.serviceAccountName", SameNamespace: true,
+			FieldPath: "spec.serviceAccountName",
 		},
 		// Pod -> ConfigMap (volumes)
-		NameRefRule{
+		RefRule{
 			FromKind: "Pod", ToKind: "ConfigMap",
-			FieldPath: "spec.volumes[*].configMap.name", SameNamespace: true,
+			FieldPath: "spec.volumes[*].configMap.name",
 		},
 		// Pod -> ConfigMap (envFrom)
-		NameRefRule{
+		RefRule{
 			FromKind: "Pod", ToKind: "ConfigMap",
-			FieldPath: "spec.containers[*].envFrom[*].configMapRef.name", SameNamespace: true,
+			FieldPath: "spec.containers[*].envFrom[*].configMapRef.name",
 		},
 		// Pod -> Secret (volumes)
-		NameRefRule{
+		RefRule{
 			FromKind: "Pod", ToKind: "Secret",
-			FieldPath: "spec.volumes[*].secret.secretName", SameNamespace: true,
+			FieldPath: "spec.volumes[*].secret.secretName",
 		},
 		// Pod -> Secret (envFrom)
-		NameRefRule{
+		RefRule{
 			FromKind: "Pod", ToKind: "Secret",
-			FieldPath: "spec.containers[*].envFrom[*].secretRef.name", SameNamespace: true,
+			FieldPath: "spec.containers[*].envFrom[*].secretRef.name",
 		},
 		// Pod -> PVC
-		NameRefRule{
+		RefRule{
 			FromKind: "Pod", ToKind: "PersistentVolumeClaim",
-			FieldPath: "spec.volumes[*].persistentVolumeClaim.claimName", SameNamespace: true,
+			FieldPath: "spec.volumes[*].persistentVolumeClaim.claimName",
 		},
 		// PVC -> PV
-		NameRefRule{
+		RefRule{
 			FromKind: "PersistentVolumeClaim", ToKind: "PersistentVolume",
-			FieldPath: "spec.volumeName", SameNamespace: false,
+			FieldPath: "spec.volumeName",
 		},
 		// PVC -> StorageClass
-		NameRefRule{
+		RefRule{
 			FromGroup: "", FromKind: "PersistentVolumeClaim",
 			ToGroup: "storage.k8s.io", ToKind: "StorageClass",
-			FieldPath: "spec.storageClassName", SameNamespace: false,
+			FieldPath: "spec.storageClassName",
 		},
 		// Ingress -> Service
-		NameRefRule{
+		RefRule{
 			FromGroup: "networking.k8s.io", FromKind: "Ingress",
 			ToKind:    "Service",
-			FieldPath: "spec.rules[*].http.paths[*].backend.service.name", SameNamespace: true,
+			FieldPath: "spec.rules[*].http.paths[*].backend.service.name",
 		},
 	)
 

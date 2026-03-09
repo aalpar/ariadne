@@ -40,26 +40,6 @@ type RefRule struct {
 
 func (RefRule) rule() {}
 
-// NameRefRule matches a field that contains the name of a target resource.
-type NameRefRule struct {
-	FromGroup, FromKind string
-	ToGroup, ToKind     string
-	FieldPath           string
-	SameNamespace       bool
-}
-
-func (NameRefRule) rule() {}
-
-// NamespacedNameRefRule matches explicit namespace+name field pairs.
-type NamespacedNameRefRule struct {
-	FromGroup, FromKind string
-	ToGroup, ToKind     string
-	NameFieldPath       string
-	NamespaceFieldPath  string // "" means same namespace as source
-}
-
-func (NamespacedNameRefRule) rule() {}
-
 // LabelSelectorRule matches target resources by label selector.
 type LabelSelectorRule struct {
 	FromGroup, FromKind string
@@ -88,10 +68,6 @@ func (r *ruleResolver) Resolve(obj *unstructured.Unstructured, lookup Lookup) []
 
 	for _, rule := range r.rules {
 		switch rule := rule.(type) {
-		case NameRefRule:
-			edges = append(edges, resolveNameRef(ref, obj, rule, lookup)...)
-		case NamespacedNameRefRule:
-			edges = append(edges, resolveNamespacedNameRef(ref, obj, rule, lookup)...)
 		case RefRule:
 			edges = append(edges, resolveRef(ref, obj, rule, lookup)...)
 		case LabelSelectorRule:
@@ -99,74 +75,6 @@ func (r *ruleResolver) Resolve(obj *unstructured.Unstructured, lookup Lookup) []
 		}
 	}
 
-	return edges
-}
-
-func resolveNameRef(ref ObjectRef, obj *unstructured.Unstructured, rule NameRefRule, lookup Lookup) []Edge {
-	if ref.Group != rule.FromGroup || ref.Kind != rule.FromKind {
-		return resolveNameRefReverse(ref, obj, rule, lookup)
-	}
-
-	var edges []Edge
-	names := extractFieldValues(obj.Object, rule.FieldPath)
-	for _, name := range names {
-		toRef := ObjectRef{
-			Group: rule.ToGroup,
-			Kind:  rule.ToKind,
-			Name:  name,
-		}
-		if rule.SameNamespace {
-			toRef.Namespace = ref.Namespace
-		}
-		if _, ok := lookup.Get(toRef); ok {
-			edgeType := EdgeNameRef
-			if rule.SameNamespace {
-				edgeType = EdgeLocalNameRef
-			}
-			edges = append(edges, Edge{
-				From:     ref,
-				To:       toRef,
-				Type:     edgeType,
-				Resolver: "rule",
-				Field:    rule.FieldPath,
-			})
-		}
-	}
-	return edges
-}
-
-func resolveNameRefReverse(ref ObjectRef, obj *unstructured.Unstructured, rule NameRefRule, lookup Lookup) []Edge {
-	if ref.Group != rule.ToGroup || ref.Kind != rule.ToKind {
-		return nil
-	}
-
-	var edges []Edge
-	var sources []*unstructured.Unstructured
-	if rule.SameNamespace {
-		sources = lookup.ListInNamespace(rule.FromGroup, rule.FromKind, ref.Namespace)
-	} else {
-		sources = lookup.List(rule.FromGroup, rule.FromKind)
-	}
-
-	for _, src := range sources {
-		srcRef := RefFromUnstructured(src)
-		names := extractFieldValues(src.Object, rule.FieldPath)
-		for _, name := range names {
-			if name == ref.Name {
-				edgeType := EdgeNameRef
-				if rule.SameNamespace {
-					edgeType = EdgeLocalNameRef
-				}
-				edges = append(edges, Edge{
-					From:     srcRef,
-					To:       ref,
-					Type:     edgeType,
-					Resolver: "rule",
-					Field:    rule.FieldPath,
-				})
-			}
-		}
-	}
 	return edges
 }
 
@@ -300,47 +208,6 @@ func resolveRefReverse(ref ObjectRef, obj *unstructured.Unstructured, rule RefRu
 					Field:    rule.FieldPath,
 				})
 			}
-		}
-	}
-	return edges
-}
-
-func resolveNamespacedNameRef(ref ObjectRef, obj *unstructured.Unstructured, rule NamespacedNameRefRule, lookup Lookup) []Edge {
-	if ref.Group != rule.FromGroup || ref.Kind != rule.FromKind {
-		return nil
-	}
-
-	var edges []Edge
-	names := extractFieldValues(obj.Object, rule.NameFieldPath)
-
-	var namespaces []string
-	if rule.NamespaceFieldPath == "" {
-		for range names {
-			namespaces = append(namespaces, ref.Namespace)
-		}
-	} else {
-		namespaces = extractFieldValues(obj.Object, rule.NamespaceFieldPath)
-	}
-
-	for i, name := range names {
-		ns := ref.Namespace
-		if i < len(namespaces) {
-			ns = namespaces[i]
-		}
-		toRef := ObjectRef{
-			Group:     rule.ToGroup,
-			Kind:      rule.ToKind,
-			Namespace: ns,
-			Name:      name,
-		}
-		if _, ok := lookup.Get(toRef); ok {
-			edges = append(edges, Edge{
-				From:     ref,
-				To:       toRef,
-				Type:     EdgeNameRef,
-				Resolver: "rule",
-				Field:    rule.NameFieldPath,
-			})
 		}
 	}
 	return edges

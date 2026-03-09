@@ -94,12 +94,11 @@ func TestExtractFieldValues_Missing(t *testing.T) {
 	}
 }
 
-func TestNameRefRule(t *testing.T) {
-	r := NewRuleResolver("test", NameRefRule{
+func TestRefRule_ExistingBehavior(t *testing.T) {
+	r := NewRuleResolver("test", RefRule{
 		FromGroup: "", FromKind: "PersistentVolumeClaim",
 		ToGroup: "", ToKind: "PersistentVolume",
-		FieldPath:     "spec.volumeName",
-		SameNamespace: false,
+		FieldPath: "spec.volumeName",
 	})
 
 	pvc := &unstructured.Unstructured{Object: map[string]interface{}{
