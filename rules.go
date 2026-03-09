@@ -17,6 +17,7 @@ package ariadne
 import (
 	"strings"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 )
@@ -218,12 +219,10 @@ func resolveLabelSelector(ref ObjectRef, obj *unstructured.Unstructured, rule La
 		return resolveLabelSelectorReverse(ref, obj, rule, lookup)
 	}
 
-	selectorMap := extractMapValue(obj.Object, rule.SelectorFieldPath)
-	if selectorMap == nil {
+	sel := extractSelector(obj.Object, rule.SelectorFieldPath)
+	if sel == nil {
 		return nil
 	}
-
-	sel := labels.SelectorFromSet(labels.Set(selectorMap))
 
 	ns := ref.Namespace
 	if rule.TargetNamespace != "" && rule.TargetNamespace != "*" {
@@ -272,11 +271,10 @@ func resolveLabelSelectorReverse(ref ObjectRef, obj *unstructured.Unstructured, 
 
 	var edges []Edge
 	for _, src := range sources {
-		selectorMap := extractMapValue(src.Object, rule.SelectorFieldPath)
-		if selectorMap == nil {
+		sel := extractSelector(src.Object, rule.SelectorFieldPath)
+		if sel == nil {
 			continue
 		}
-		sel := labels.SelectorFromSet(labels.Set(selectorMap))
 		if sel.Matches(labels.Set(targetLabels)) {
 			edges = append(edges, Edge{
 				From:     RefFromUnstructured(src),
@@ -336,7 +334,11 @@ func extractRecursive(data interface{}, parts []string) []string {
 	return extractRecursive(val, rest)
 }
 
-func extractMapValue(obj map[string]interface{}, path string) map[string]string {
+// extractSelector navigates to a field path and parses the value as a
+// labels.Selector. Handles both formats:
+//   - Full LabelSelector: {matchLabels: {...}, matchExpressions: [...]}
+//   - Flat map: {key: value, ...} (e.g., Service.spec.selector)
+func extractSelector(obj map[string]interface{}, path string) labels.Selector {
 	parts := splitFieldPath(path)
 	var current interface{} = obj
 	for _, part := range parts {
@@ -354,13 +356,58 @@ func extractMapValue(obj map[string]interface{}, path string) map[string]string 
 	if !ok {
 		return nil
 	}
-	result := make(map[string]string, len(m))
+
+	_, hasMatchLabels := m["matchLabels"]
+	_, hasMatchExpressions := m["matchExpressions"]
+
+	if hasMatchLabels || hasMatchExpressions {
+		ls := &metav1.LabelSelector{}
+		if ml, ok := m["matchLabels"].(map[string]interface{}); ok {
+			ls.MatchLabels = make(map[string]string, len(ml))
+			for k, v := range ml {
+				if s, ok := v.(string); ok {
+					ls.MatchLabels[k] = s
+				}
+			}
+		}
+		if me, ok := m["matchExpressions"].([]interface{}); ok {
+			for _, item := range me {
+				expr, ok := item.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				req := metav1.LabelSelectorRequirement{}
+				if key, ok := expr["key"].(string); ok {
+					req.Key = key
+				}
+				if op, ok := expr["operator"].(string); ok {
+					req.Operator = metav1.LabelSelectorOperator(op)
+				}
+				if vals, ok := expr["values"].([]interface{}); ok {
+					for _, v := range vals {
+						if s, ok := v.(string); ok {
+							req.Values = append(req.Values, s)
+						}
+					}
+				}
+				ls.MatchExpressions = append(ls.MatchExpressions, req)
+			}
+		}
+		sel, err := metav1.LabelSelectorAsSelector(ls)
+		if err != nil {
+			return nil
+		}
+		return sel
+	}
+
+	// Flat map (e.g., Service.spec.selector)
+	flat := make(map[string]string, len(m))
 	for k, v := range m {
 		if s, ok := v.(string); ok {
-			result[k] = s
+			flat[k] = s
 		}
 	}
-	return result
+	return labels.SelectorFromSet(labels.Set(flat))
 }
 
 func splitFieldPath(path string) []string {

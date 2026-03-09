@@ -31,7 +31,7 @@ func NewSelectorResolver() Resolver {
 		LabelSelectorRule{
 			FromGroup: "policy", FromKind: "PodDisruptionBudget",
 			ToKind:            "Pod",
-			SelectorFieldPath: "spec.selector.matchLabels",
+			SelectorFieldPath: "spec.selector",
 		},
 	)
 	return &namedResolver{name: "selector", inner: r}
