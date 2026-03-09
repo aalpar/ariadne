@@ -378,6 +378,135 @@ func TestRefRule_ReverseWithNamespace(t *testing.T) {
 	}
 }
 
+func TestRefRule_TypedRef(t *testing.T) {
+	r := NewRuleResolver("test", RefRule{
+		FromGroup: "autoscaling", FromKind: "HorizontalPodAutoscaler",
+		FieldPath: "spec.scaleTargetRef",
+	})
+
+	hpa := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "autoscaling/v2", "kind": "HorizontalPodAutoscaler",
+		"metadata": map[string]interface{}{
+			"name": "web-hpa", "namespace": "default",
+		},
+		"spec": map[string]interface{}{
+			"scaleTargetRef": map[string]interface{}{
+				"apiVersion": "apps/v1",
+				"kind":       "Deployment",
+				"name":       "web",
+			},
+		},
+	}}
+
+	deploy := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "apps/v1", "kind": "Deployment",
+		"metadata": map[string]interface{}{
+			"name": "web", "namespace": "default",
+		},
+	}}
+
+	lookup := &stubLookup{
+		objects: map[ObjectRef]*unstructured.Unstructured{
+			{Group: "apps", Kind: "Deployment", Namespace: "default", Name: "web"}: deploy,
+		},
+	}
+
+	edges := r.Resolve(hpa, lookup)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(edges))
+	}
+	if edges[0].To.Group != "apps" || edges[0].To.Kind != "Deployment" || edges[0].To.Name != "web" {
+		t.Fatalf("unexpected target: %v", edges[0].To)
+	}
+	if edges[0].Type != EdgeLocalNameRef {
+		t.Fatalf("expected EdgeLocalNameRef, got %v", edges[0].Type)
+	}
+}
+
+func TestRefRule_TypedRefWithConstraint(t *testing.T) {
+	r := NewRuleResolver("test", RefRule{
+		FromGroup: "rbac.authorization.k8s.io", FromKind: "RoleBinding",
+		ToGroup:   "rbac.authorization.k8s.io",
+		FieldPath: "spec.roleRef",
+	})
+
+	rb := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "RoleBinding",
+		"metadata": map[string]interface{}{
+			"name": "admin-binding", "namespace": "default",
+		},
+		"spec": map[string]interface{}{
+			"roleRef": map[string]interface{}{
+				"apiGroup": "rbac.authorization.k8s.io",
+				"kind":     "Role",
+				"name":     "admin",
+			},
+		},
+	}}
+
+	role := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "Role",
+		"metadata": map[string]interface{}{
+			"name": "admin", "namespace": "default",
+		},
+	}}
+
+	lookup := &stubLookup{
+		objects: map[ObjectRef]*unstructured.Unstructured{
+			{Group: "rbac.authorization.k8s.io", Kind: "Role", Namespace: "default", Name: "admin"}: role,
+		},
+	}
+
+	edges := r.Resolve(rb, lookup)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(edges))
+	}
+	if edges[0].To.Kind != "Role" {
+		t.Fatalf("expected Role, got %v", edges[0].To.Kind)
+	}
+}
+
+func TestRefRule_TypedRefConstraintMismatch(t *testing.T) {
+	// Rule constrains ToGroup to "apps" but the ref points to "batch"
+	r := NewRuleResolver("test", RefRule{
+		FromKind:  "MyController",
+		ToGroup:   "apps",
+		FieldPath: "spec.targetRef",
+	})
+
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "MyController",
+		"metadata": map[string]interface{}{
+			"name": "ctl", "namespace": "default",
+		},
+		"spec": map[string]interface{}{
+			"targetRef": map[string]interface{}{
+				"apiGroup": "batch",
+				"kind":     "Job",
+				"name":     "my-job",
+			},
+		},
+	}}
+
+	job := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "batch/v1", "kind": "Job",
+		"metadata": map[string]interface{}{
+			"name": "my-job", "namespace": "default",
+		},
+	}}
+
+	lookup := &stubLookup{
+		objects: map[ObjectRef]*unstructured.Unstructured{
+			{Group: "batch", Kind: "Job", Namespace: "default", Name: "my-job"}: job,
+		},
+	}
+
+	edges := r.Resolve(obj, lookup)
+	if len(edges) != 0 {
+		t.Fatalf("expected 0 edges (constraint mismatch), got %d: %v", len(edges), edges)
+	}
+}
+
 func TestExtractRawValues_String(t *testing.T) {
 	obj := map[string]interface{}{
 		"spec": map[string]interface{}{

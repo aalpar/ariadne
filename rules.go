@@ -84,73 +84,137 @@ func resolveRef(ref ObjectRef, obj *unstructured.Unstructured, rule RefRule, loo
 		return resolveRefReverse(ref, obj, rule, lookup)
 	}
 
-	names := extractFieldValues(obj.Object, rule.FieldPath)
-	if len(names) == 0 {
+	values := extractRawValues(obj.Object, rule.FieldPath)
+	if len(values) == 0 {
 		return nil
 	}
 
-	var edges []Edge
-
+	var namespaces []string
 	if rule.NamespaceFieldPath != "" {
-		namespaces := extractFieldValues(obj.Object, rule.NamespaceFieldPath)
-		for i, name := range names {
-			ns := ref.Namespace
-			if i < len(namespaces) {
-				ns = namespaces[i]
-			}
-			toRef := ObjectRef{
-				Group:     rule.ToGroup,
-				Kind:      rule.ToKind,
-				Namespace: ns,
-				Name:      name,
-			}
-			if _, ok := lookup.Get(toRef); ok {
-				edges = append(edges, Edge{
-					From:     ref,
-					To:       toRef,
-					Type:     EdgeNameRef,
-					Resolver: "rule",
-					Field:    rule.FieldPath,
-				})
-			}
-		}
-		return edges
+		namespaces = extractFieldValues(obj.Object, rule.NamespaceFieldPath)
 	}
 
-	// No NamespaceFieldPath: try same-namespace, then cluster-scoped.
-	for _, name := range names {
-		sameNS := ObjectRef{
-			Group:     rule.ToGroup,
-			Kind:      rule.ToKind,
-			Namespace: ref.Namespace,
-			Name:      name,
-		}
-		if _, ok := lookup.Get(sameNS); ok {
-			edges = append(edges, Edge{
-				From:     ref,
-				To:       sameNS,
-				Type:     EdgeLocalNameRef,
-				Resolver: "rule",
-				Field:    rule.FieldPath,
-			})
-			continue
-		}
-		clusterScoped := ObjectRef{
-			Group: rule.ToGroup,
-			Kind:  rule.ToKind,
-			Name:  name,
-		}
-		if _, ok := lookup.Get(clusterScoped); ok {
-			edges = append(edges, Edge{
-				From:     ref,
-				To:       clusterScoped,
-				Type:     EdgeNameRef,
-				Resolver: "rule",
-				Field:    rule.FieldPath,
-			})
+	var edges []Edge
+	for i, val := range values {
+		switch v := val.(type) {
+		case string:
+			edges = append(edges, resolveBareName(ref, v, i, namespaces, rule, lookup)...)
+		case map[string]interface{}:
+			edges = append(edges, resolveTypedRef(ref, v, rule, lookup)...)
 		}
 	}
 	return edges
+}
+
+// resolveBareName handles a bare string name value.
+func resolveBareName(ref ObjectRef, name string, index int, namespaces []string, rule RefRule, lookup Lookup) []Edge {
+	if len(namespaces) > 0 {
+		ns := ref.Namespace
+		if index < len(namespaces) {
+			ns = namespaces[index]
+		}
+		toRef := ObjectRef{
+			Group:     rule.ToGroup,
+			Kind:      rule.ToKind,
+			Namespace: ns,
+			Name:      name,
+		}
+		if _, ok := lookup.Get(toRef); ok {
+			return []Edge{{
+				From:     ref,
+				To:       toRef,
+				Type:     EdgeNameRef,
+				Resolver: "rule",
+				Field:    rule.FieldPath,
+			}}
+		}
+		return nil
+	}
+
+	// No NamespaceFieldPath: try same-namespace, then cluster-scoped.
+	sameNS := ObjectRef{
+		Group:     rule.ToGroup,
+		Kind:      rule.ToKind,
+		Namespace: ref.Namespace,
+		Name:      name,
+	}
+	if _, ok := lookup.Get(sameNS); ok {
+		return []Edge{{
+			From:     ref,
+			To:       sameNS,
+			Type:     EdgeLocalNameRef,
+			Resolver: "rule",
+			Field:    rule.FieldPath,
+		}}
+	}
+	clusterScoped := ObjectRef{
+		Group: rule.ToGroup,
+		Kind:  rule.ToKind,
+		Name:  name,
+	}
+	if _, ok := lookup.Get(clusterScoped); ok {
+		return []Edge{{
+			From:     ref,
+			To:       clusterScoped,
+			Type:     EdgeNameRef,
+			Resolver: "rule",
+			Field:    rule.FieldPath,
+		}}
+	}
+	return nil
+}
+
+// resolveTypedRef handles a typed reference map (kind/name/apiGroup).
+func resolveTypedRef(ref ObjectRef, m map[string]interface{}, rule RefRule, lookup Lookup) []Edge {
+	toRef, ok := parseTypedRef(m)
+	if !ok {
+		return nil
+	}
+
+	// Apply type constraint if set.
+	if rule.ToGroup != "" && toRef.Group != rule.ToGroup {
+		return nil
+	}
+	if rule.ToKind != "" && toRef.Kind != rule.ToKind {
+		return nil
+	}
+
+	// If typed ref has explicit namespace, use it directly.
+	if toRef.Namespace != "" {
+		if _, ok := lookup.Get(toRef); ok {
+			return []Edge{{
+				From:     ref,
+				To:       toRef,
+				Type:     EdgeNameRef,
+				Resolver: "rule",
+				Field:    rule.FieldPath,
+			}}
+		}
+		return nil
+	}
+
+	// No namespace in ref: try same-namespace, then cluster-scoped.
+	sameNS := toRef
+	sameNS.Namespace = ref.Namespace
+	if _, ok := lookup.Get(sameNS); ok {
+		return []Edge{{
+			From:     ref,
+			To:       sameNS,
+			Type:     EdgeLocalNameRef,
+			Resolver: "rule",
+			Field:    rule.FieldPath,
+		}}
+	}
+	if _, ok := lookup.Get(toRef); ok {
+		return []Edge{{
+			From:     ref,
+			To:       toRef,
+			Type:     EdgeNameRef,
+			Resolver: "rule",
+			Field:    rule.FieldPath,
+		}}
+	}
+	return nil
 }
 
 func resolveRefReverse(ref ObjectRef, obj *unstructured.Unstructured, rule RefRule, lookup Lookup) []Edge {
