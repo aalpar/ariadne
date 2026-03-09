@@ -11,10 +11,18 @@
 
 ## CRD-level typed references
 
-Patterns for users extending Ariadne with their own resolvers. Not built-in — document and test as examples.
+Example resolvers showing how users extend Ariadne for their own CRDs. Not registered by `NewDefault()` — tested as proof that the primitives work.
 
-- [ ] Gateway API: HTTPRoute `backendRefs[*]` (kind/name/group/namespace), ReferenceGrant cross-namespace trust.
-- [ ] Cluster API: Machine `spec.infrastructureRef`, Cluster `spec.infrastructureRef`, MachineDeployment `spec.template.spec.infrastructureRef`.
-- [ ] Kyverno/OPA: ClusterPolicy `spec.rules[*].match.resources` (not a direct ref, but a selector-like pattern over kinds).
-- [ ] Argo CD: Application `spec.source` → repo + `spec.destination` → cluster/namespace (composite ref, not a single typed-ref).
-- [ ] Crossplane: Composition `spec.compositeTypeRef` (group/kind), managed resource `spec.providerConfigRef` (kind/name).
+### Fits existing primitives (RefRule / LabelSelectorRule)
+
+- [x] **Gateway API**: HTTPRoute `spec.rules[*].backendRefs[*]` — typed-ref with kind/name/group/namespace. Exercises cross-namespace typed refs. Also: HTTPRoute `spec.parentRefs[*]` → Gateway. (`gateway.go`)
+- [x] **Cluster API**: Machine `spec.infrastructureRef`, Cluster `spec.infrastructureRef`, MachineDeployment `spec.template.spec.infrastructureRef` — all standard typed-refs. Also: Cluster `spec.controlPlaneRef`. (`clusterapi.go`)
+- [x] **Crossplane providerConfigRef**: Managed resource `spec.providerConfigRef.name` — bare name ref to ProviderConfig. Callers register their managed resource types via `ManagedResource`. (`crossplane.go`)
+
+### Beyond current primitives
+
+These patterns don't fit RefRule/LabelSelectorRule cleanly. They reveal what a custom `Resolver` implementation looks like vs. declarative rules.
+
+- [x] **Kyverno**: ClusterPolicy/Policy `spec.rules[*].match.resources.kinds` — kind-level matching via custom Resolver. ClusterPolicy matches all namespaces; Policy matches same namespace only. (`kyverno.go`)
+- [x] **Argo CD**: Application `spec.destination.namespace` → Namespace + `spec.project` → AppProject — decomposed into two bare name RefRules. (`argocd.go`)
+- [x] **Crossplane compositeTypeRef**: Composition `spec.compositeTypeRef` (group+kind, no name) — custom Resolver matching all instances of the referenced GroupKind. (`crossplane.go`)
