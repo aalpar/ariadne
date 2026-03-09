@@ -47,7 +47,7 @@ Single-package library (`package ariadne`). All source files are at the repo roo
 | `types.go` | `ObjectRef`, `Edge`, `EdgeType`, `GraphEvent`, `ChangeListener` |
 | `resolver.go` | `Resolver` and `Lookup` interfaces |
 | `graph.go` | `Graph` struct, `New`/`NewDefault`, `Add`/`Remove`/`Load`, query methods, `graphLookup` |
-| `rules.go` | Declarative rule types (`NameRefRule`, `NamespacedNameRefRule`, `LabelSelectorRule`), `NewRuleResolver`, field path extraction |
+| `rules.go` | Declarative rule types (`RefRule`, `LabelSelectorRule`), `NewRuleResolver`, field path extraction |
 | `structural.go` | Built-in resolver for known K8s references (Pod→SA, Pod→ConfigMap, ownerRefs, etc.) |
 | `selector.go` | Built-in resolver for label/selector matching (Service→Pod, NetworkPolicy→Pod) |
 | `event.go` | Built-in resolver for K8s Event→involvedObject edges |
@@ -60,14 +60,14 @@ Built-in resolvers are composed from the same `Rule` primitives available to use
 
 ```
 NewStructuralResolver()
-  └─ NewRuleResolver("structural", ...NameRefRules)  + ownerRef logic
+  └─ NewRuleResolver("structural", ...RefRules)  + ownerRef logic
 NewSelectorResolver()
   └─ NewRuleResolver("selector", ...LabelSelectorRules)
 NewEventResolver()
   └─ custom (parses involvedObject directly)
 ```
 
-Users extend the graph by calling `NewRuleResolver("my-crd", ...rules)` with their own `NameRefRule`/`LabelSelectorRule` definitions, or by implementing the `Resolver` interface directly.
+Users extend the graph by calling `NewRuleResolver("my-crd", ...rules)` with their own `RefRule`/`LabelSelectorRule` definitions, or by implementing the `Resolver` interface directly.
 
 ### Field path syntax
 

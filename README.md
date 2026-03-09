@@ -158,11 +158,16 @@ built-in resolvers use:
 ```go
 g := ariadne.New(
 	ariadne.WithResolver(ariadne.NewRuleResolver("my-app",
-		ariadne.NameRefRule{
+		ariadne.RefRule{
 			FromGroup: "db.example.com", FromKind: "DatabaseCluster",
 			ToKind:    "Secret",
 			FieldPath: "spec.credentialsSecretName",
-			SameNamespace: true,
+		},
+		ariadne.RefRule{
+			FromGroup: "gateway.example.com", FromKind: "HTTPRoute",
+			ToKind:             "Service",
+			FieldPath:          "spec.backendRefs[*].name",
+			NamespaceFieldPath: "spec.backendRefs[*].namespace",
 		},
 		ariadne.LabelSelectorRule{
 			FromGroup: "app.example.com", FromKind: "Canary",
@@ -175,8 +180,10 @@ g := ariadne.New(
 
 **Rule types:**
 
-- `NameRefRule` — a field contains the name of a target resource
-- `NamespacedNameRefRule` — explicit namespace + name field pair
+- `RefRule` — a field contains the name of a target resource, with optional
+  `NamespaceFieldPath` for cross-namespace references. When no namespace field
+  is specified, resolution tries the source's namespace first, then
+  cluster-scoped — rules don't need to know whether the target is namespaced.
 - `LabelSelectorRule` — match targets by label selector
 
 ### Resolver interface
