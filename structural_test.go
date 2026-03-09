@@ -98,6 +98,55 @@ func TestStructuralResolver_OwnerRef(t *testing.T) {
 	}
 }
 
+func TestStructuralResolver_OwnerRefReverse(t *testing.T) {
+	g := New(WithResolver(NewStructuralResolver()))
+
+	pod := unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Pod",
+		"metadata": map[string]interface{}{
+			"name": "web-pod", "namespace": "default",
+			"ownerReferences": []interface{}{
+				map[string]interface{}{
+					"apiVersion": "apps/v1",
+					"kind":       "ReplicaSet",
+					"name":       "web-rs",
+					"uid":        "fake-uid",
+				},
+			},
+		},
+	}}
+
+	rs := unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "apps/v1", "kind": "ReplicaSet",
+		"metadata": map[string]interface{}{
+			"name": "web-rs", "namespace": "default",
+		},
+	}}
+
+	// Add child first, then owner — the reverse path must discover the edge.
+	g.Add(pod)
+	g.Add(rs)
+
+	podRef := ObjectRef{Kind: "Pod", Namespace: "default", Name: "web-pod"}
+	deps := g.DependenciesOf(podRef)
+	if len(deps) != 1 {
+		t.Fatalf("expected 1 owner dep, got %d", len(deps))
+	}
+	if deps[0].To.Kind != "ReplicaSet" || deps[0].To.Name != "web-rs" {
+		t.Fatalf("unexpected owner: %v", deps[0].To)
+	}
+
+	// Verify from the owner's perspective too.
+	rsRef := ObjectRef{Group: "apps", Kind: "ReplicaSet", Namespace: "default", Name: "web-rs"}
+	dependents := g.DependentsOf(rsRef)
+	if len(dependents) != 1 {
+		t.Fatalf("expected 1 dependent, got %d", len(dependents))
+	}
+	if dependents[0].From.Kind != "Pod" || dependents[0].From.Name != "web-pod" {
+		t.Fatalf("unexpected dependent: %v", dependents[0].From)
+	}
+}
+
 func TestStructuralResolver_PVCToPV(t *testing.T) {
 	g := New(WithResolver(NewStructuralResolver()))
 

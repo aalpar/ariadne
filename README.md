@@ -7,6 +7,44 @@ queryable, observable graph.
 Named after Ariadne of Greek mythology, who gave Theseus the thread to navigate
 the Labyrinth.
 
+## Goals
+
+Many tools visualize Kubernetes resource relationships — kubectl-tree,
+kube-lineage, KubeView, kubectl-graph, Lens Resource Map — but they all connect
+to a live cluster and own the full pipeline from API discovery to rendering.
+The relationship knowledge (how a Pod references a ConfigMap, how a Service
+selects Pods) is hard-coded inside each tool, reimplemented independently, and
+not reusable.
+
+Ariadne is a **library, not a tool**. It aims to be the shared foundation that
+tools embed:
+
+- **Embeddable anywhere.** No cluster connection, no informers, no HTTP
+  servers. You provide `unstructured.Unstructured` objects from any source —
+  client-go, YAML on disk, test fixtures — and get a graph back. This makes it
+  usable in operators, CI pipelines, static analysis, GitOps tools, and custom
+  dashboards.
+
+- **Minimal dependency surface.** Only `k8s.io/apimachinery`. No client-go, no
+  controller-runtime, no graph libraries. Consumers don't inherit a dependency
+  tree that conflicts with their own.
+
+- **Declarative, shareable rules.** Most resource relationships are expressed as
+  data (`NameRefRule`, `LabelSelectorRule`), not code. A rule like "Certificate
+  references a Secret via `spec.secretName`" is a struct literal, not a
+  function. Rules can be packaged, published, and composed — the same primitives
+  the built-in resolvers use are available to users for CRDs and custom
+  resources. Some relationships (like `ownerReferences`) are generic across all
+  kinds and handled by dedicated code rather than rules.
+
+- **Incremental and reactive.** `Add`/`Remove` with change listeners, not just
+  one-shot graph construction. This supports live use in controllers and
+  informer-based systems, not just static analysis.
+
+The long-term bet is that community-contributed rule sets for popular CRDs
+(cert-manager, Istio, ArgoCD, Crossplane, Prometheus Operator, etc.) become the
+shared, tool-agnostic registry of how Kubernetes resources relate to each other.
+
 ## Install
 
 ```

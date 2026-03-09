@@ -340,3 +340,11 @@ func (l *graphLookup) ListInNamespace(group, kind, namespace string) []*unstruct
 	}
 	return result
 }
+
+func (l *graphLookup) ListAll() []*unstructured.Unstructured {
+	result := make([]*unstructured.Unstructured, 0, len(l.nodes))
+	for _, n := range l.nodes {
+		result = append(result, n.obj)
+	}
+	return result
+}

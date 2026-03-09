@@ -30,4 +30,5 @@ type Lookup interface {
 	Get(ref ObjectRef) (*unstructured.Unstructured, bool)
 	List(group, kind string) []*unstructured.Unstructured
 	ListInNamespace(group, kind, namespace string) []*unstructured.Unstructured
+	ListAll() []*unstructured.Unstructured
 }

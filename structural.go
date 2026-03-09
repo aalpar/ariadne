@@ -92,10 +92,10 @@ func (s *structuralResolver) Resolve(obj *unstructured.Unstructured, lookup Look
 
 func resolveOwnerRefs(obj *unstructured.Unstructured, lookup Lookup) []Edge {
 	ref := RefFromUnstructured(obj)
-	owners := obj.GetOwnerReferences()
 	var edges []Edge
 
-	for _, owner := range owners {
+	// Forward: obj has ownerReferences pointing to existing objects.
+	for _, owner := range obj.GetOwnerReferences() {
 		ownerRef := ObjectRef{
 			Group:     extractGroup(owner.APIVersion),
 			Kind:      owner.Kind,
@@ -112,6 +112,29 @@ func resolveOwnerRefs(obj *unstructured.Unstructured, lookup Lookup) []Edge {
 			})
 		}
 	}
+
+	// Reverse: existing objects may have ownerReferences pointing to obj.
+	// Namespaced owners can only own resources in the same namespace.
+	// Cluster-scoped owners (Namespace == "") can own resources in any namespace.
+	for _, existing := range lookup.ListAll() {
+		if ref.Namespace != "" && existing.GetNamespace() != ref.Namespace {
+			continue
+		}
+		for _, owner := range existing.GetOwnerReferences() {
+			if extractGroup(owner.APIVersion) == ref.Group &&
+				owner.Kind == ref.Kind &&
+				owner.Name == ref.Name {
+				edges = append(edges, Edge{
+					From:     RefFromUnstructured(existing),
+					To:       ref,
+					Type:     EdgeNameRef,
+					Resolver: "structural",
+					Field:    "metadata.ownerReferences",
+				})
+			}
+		}
+	}
+
 	return edges
 }
 

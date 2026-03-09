@@ -227,3 +227,11 @@ func (s *stubLookup) ListInNamespace(group, kind, namespace string) []*unstructu
 	}
 	return result
 }
+
+func (s *stubLookup) ListAll() []*unstructured.Unstructured {
+	result := make([]*unstructured.Unstructured, 0, len(s.objects))
+	for _, obj := range s.objects {
+		result = append(result, obj)
+	}
+	return result
+}
