@@ -466,6 +466,92 @@ func TestRefRule_TypedRefWithConstraint(t *testing.T) {
 	}
 }
 
+func TestRefRule_TypedRefReverse(t *testing.T) {
+	r := NewRuleResolver("test", RefRule{
+		FromGroup: "autoscaling", FromKind: "HorizontalPodAutoscaler",
+		FieldPath: "spec.scaleTargetRef",
+	})
+
+	// A Deployment is being added; an HPA already exists that references it.
+	deploy := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "apps/v1", "kind": "Deployment",
+		"metadata": map[string]interface{}{
+			"name": "web", "namespace": "default",
+		},
+	}}
+
+	hpa := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "autoscaling/v2", "kind": "HorizontalPodAutoscaler",
+		"metadata": map[string]interface{}{
+			"name": "web-hpa", "namespace": "default",
+		},
+		"spec": map[string]interface{}{
+			"scaleTargetRef": map[string]interface{}{
+				"apiVersion": "apps/v1",
+				"kind":       "Deployment",
+				"name":       "web",
+			},
+		},
+	}}
+
+	lookup := &stubLookup{
+		objects: map[ObjectRef]*unstructured.Unstructured{
+			{Group: "autoscaling", Kind: "HorizontalPodAutoscaler", Namespace: "default", Name: "web-hpa"}: hpa,
+		},
+	}
+
+	edges := r.Resolve(deploy, lookup)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 reverse edge, got %d: %v", len(edges), edges)
+	}
+	if edges[0].From.Kind != "HorizontalPodAutoscaler" {
+		t.Fatalf("expected edge from HPA, got %v", edges[0].From)
+	}
+	if edges[0].To.Kind != "Deployment" || edges[0].To.Name != "web" {
+		t.Fatalf("expected edge to Deployment/web, got %v", edges[0].To)
+	}
+}
+
+func TestRefRule_TypedRefReverseNoMatch(t *testing.T) {
+	// HPA targets Deployment, but we add a StatefulSet — no edge.
+	r := NewRuleResolver("test", RefRule{
+		FromGroup: "autoscaling", FromKind: "HorizontalPodAutoscaler",
+		FieldPath: "spec.scaleTargetRef",
+	})
+
+	ss := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "apps/v1", "kind": "StatefulSet",
+		"metadata": map[string]interface{}{
+			"name": "db", "namespace": "default",
+		},
+	}}
+
+	hpa := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "autoscaling/v2", "kind": "HorizontalPodAutoscaler",
+		"metadata": map[string]interface{}{
+			"name": "web-hpa", "namespace": "default",
+		},
+		"spec": map[string]interface{}{
+			"scaleTargetRef": map[string]interface{}{
+				"apiVersion": "apps/v1",
+				"kind":       "Deployment",
+				"name":       "web",
+			},
+		},
+	}}
+
+	lookup := &stubLookup{
+		objects: map[ObjectRef]*unstructured.Unstructured{
+			{Group: "autoscaling", Kind: "HorizontalPodAutoscaler", Namespace: "default", Name: "web-hpa"}: hpa,
+		},
+	}
+
+	edges := r.Resolve(ss, lookup)
+	if len(edges) != 0 {
+		t.Fatalf("expected 0 edges (HPA targets Deployment, not StatefulSet), got %d: %v", len(edges), edges)
+	}
+}
+
 func TestRefRule_TypedRefConstraintMismatch(t *testing.T) {
 	// Rule constrains ToGroup to "apps" but the ref points to "batch"
 	r := NewRuleResolver("test", RefRule{

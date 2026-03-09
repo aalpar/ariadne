@@ -218,64 +218,123 @@ func resolveTypedRef(ref ObjectRef, m map[string]interface{}, rule RefRule, look
 }
 
 func resolveRefReverse(ref ObjectRef, obj *unstructured.Unstructured, rule RefRule, lookup Lookup) []Edge {
-	if ref.Group != rule.ToGroup || ref.Kind != rule.ToKind {
+	// Type constraint guard: skip if the added object can't be a target.
+	if rule.ToKind != "" && (ref.Group != rule.ToGroup || ref.Kind != rule.ToKind) {
 		return nil
 	}
 
+	// For unconstrained rules (ToKind empty), scan all sources.
+	// For constrained rules, scope by namespace when possible.
 	var sources []*unstructured.Unstructured
-	if rule.NamespaceFieldPath != "" {
-		// Explicit namespace field: any namespace can reference this target.
+	if rule.ToKind == "" || rule.NamespaceFieldPath != "" {
 		sources = lookup.List(rule.FromGroup, rule.FromKind)
 	} else if ref.Namespace != "" {
-		// Same-namespace defaulting: only sources in target's namespace.
 		sources = lookup.ListInNamespace(rule.FromGroup, rule.FromKind, ref.Namespace)
 	} else {
-		// Cluster-scoped target: any namespace's source could reference it.
 		sources = lookup.List(rule.FromGroup, rule.FromKind)
 	}
 
 	var edges []Edge
 	for _, src := range sources {
 		srcRef := RefFromUnstructured(src)
-		names := extractFieldValues(src.Object, rule.FieldPath)
+		values := extractRawValues(src.Object, rule.FieldPath)
 
-		if rule.NamespaceFieldPath != "" {
-			namespaces := extractFieldValues(src.Object, rule.NamespaceFieldPath)
-			for i, name := range names {
-				ns := srcRef.Namespace
-				if i < len(namespaces) {
-					ns = namespaces[i]
+		for i, val := range values {
+			switch v := val.(type) {
+			case string:
+				edge := reverseMatchBareName(srcRef, ref, v, i, src, rule)
+				if edge != nil {
+					edges = append(edges, *edge)
 				}
-				if name == ref.Name && ns == ref.Namespace {
-					edges = append(edges, Edge{
-						From:     srcRef,
-						To:       ref,
-						Type:     EdgeNameRef,
-						Resolver: "rule",
-						Field:    rule.FieldPath,
-					})
+			case map[string]interface{}:
+				edge := reverseMatchTypedRef(srcRef, ref, v, rule)
+				if edge != nil {
+					edges = append(edges, *edge)
 				}
-			}
-			continue
-		}
-
-		for _, name := range names {
-			if name == ref.Name {
-				edgeType := EdgeLocalNameRef
-				if ref.Namespace == "" {
-					edgeType = EdgeNameRef
-				}
-				edges = append(edges, Edge{
-					From:     srcRef,
-					To:       ref,
-					Type:     edgeType,
-					Resolver: "rule",
-					Field:    rule.FieldPath,
-				})
 			}
 		}
 	}
 	return edges
+}
+
+func reverseMatchBareName(srcRef, targetRef ObjectRef, name string, index int, src *unstructured.Unstructured, rule RefRule) *Edge {
+	if name != targetRef.Name {
+		return nil
+	}
+
+	if rule.NamespaceFieldPath != "" {
+		namespaces := extractFieldValues(src.Object, rule.NamespaceFieldPath)
+		ns := srcRef.Namespace
+		if index < len(namespaces) {
+			ns = namespaces[index]
+		}
+		if ns != targetRef.Namespace {
+			return nil
+		}
+		return &Edge{
+			From:     srcRef,
+			To:       targetRef,
+			Type:     EdgeNameRef,
+			Resolver: "rule",
+			Field:    rule.FieldPath,
+		}
+	}
+
+	edgeType := EdgeLocalNameRef
+	if targetRef.Namespace == "" {
+		edgeType = EdgeNameRef
+	}
+	return &Edge{
+		From:     srcRef,
+		To:       targetRef,
+		Type:     edgeType,
+		Resolver: "rule",
+		Field:    rule.FieldPath,
+	}
+}
+
+func reverseMatchTypedRef(srcRef, targetRef ObjectRef, m map[string]interface{}, rule RefRule) *Edge {
+	parsed, ok := parseTypedRef(m)
+	if !ok {
+		return nil
+	}
+
+	// Apply type constraint if set.
+	if rule.ToGroup != "" && parsed.Group != rule.ToGroup {
+		return nil
+	}
+	if rule.ToKind != "" && parsed.Kind != rule.ToKind {
+		return nil
+	}
+
+	// Check if the parsed ref matches the target.
+	if parsed.Group != targetRef.Group || parsed.Kind != targetRef.Kind || parsed.Name != targetRef.Name {
+		return nil
+	}
+
+	// Namespace matching.
+	if parsed.Namespace != "" {
+		if parsed.Namespace != targetRef.Namespace {
+			return nil
+		}
+	} else {
+		// No namespace in ref: matches same-namespace or cluster-scoped.
+		if targetRef.Namespace != "" && targetRef.Namespace != srcRef.Namespace {
+			return nil
+		}
+	}
+
+	edgeType := EdgeLocalNameRef
+	if parsed.Namespace != "" || targetRef.Namespace == "" {
+		edgeType = EdgeNameRef
+	}
+	return &Edge{
+		From:     srcRef,
+		To:       targetRef,
+		Type:     edgeType,
+		Resolver: "rule",
+		Field:    rule.FieldPath,
+	}
 }
 
 // parseTypedRef extracts an ObjectRef from a typed reference map.
