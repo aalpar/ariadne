@@ -176,3 +176,152 @@ func TestStructuralResolver_PVCToPV(t *testing.T) {
 		t.Fatalf("expected PV target, got %v", deps[0].To)
 	}
 }
+
+func TestStructuralResolver_Tier1References(t *testing.T) {
+	g := New(WithResolver(NewStructuralResolver()))
+
+	objs := []unstructured.Unstructured{
+		// Targets
+		{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "Secret",
+			"metadata": map[string]interface{}{
+				"name": "pull-secret", "namespace": "default",
+			},
+		}},
+		{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "Secret",
+			"metadata": map[string]interface{}{
+				"name": "db-creds", "namespace": "default",
+			},
+		}},
+		{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "ConfigMap",
+			"metadata": map[string]interface{}{
+				"name": "env-config", "namespace": "default",
+			},
+		}},
+		{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "Secret",
+			"metadata": map[string]interface{}{
+				"name": "tls-cert", "namespace": "default",
+			},
+		}},
+		{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "Service",
+			"metadata": map[string]interface{}{
+				"name": "headless-svc", "namespace": "default",
+			},
+		}},
+		{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "Node",
+			"metadata": map[string]interface{}{"name": "node-1"},
+		}},
+		{Object: map[string]interface{}{
+			"apiVersion": "storage.k8s.io/v1", "kind": "StorageClass",
+			"metadata": map[string]interface{}{"name": "fast-ssd"},
+		}},
+		// Pod with imagePullSecrets, env valueFrom, projected volumes, nodeName
+		{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "Pod",
+			"metadata": map[string]interface{}{
+				"name": "app", "namespace": "default",
+			},
+			"spec": map[string]interface{}{
+				"nodeName": "node-1",
+				"imagePullSecrets": []interface{}{
+					map[string]interface{}{"name": "pull-secret"},
+				},
+				"containers": []interface{}{
+					map[string]interface{}{
+						"name": "main",
+						"env": []interface{}{
+							map[string]interface{}{
+								"name": "DB_PASS",
+								"valueFrom": map[string]interface{}{
+									"secretKeyRef": map[string]interface{}{
+										"name": "db-creds",
+										"key":  "password",
+									},
+								},
+							},
+							map[string]interface{}{
+								"name": "APP_ENV",
+								"valueFrom": map[string]interface{}{
+									"configMapKeyRef": map[string]interface{}{
+										"name": "env-config",
+										"key":  "environment",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}},
+		// Ingress with TLS
+		{Object: map[string]interface{}{
+			"apiVersion": "networking.k8s.io/v1", "kind": "Ingress",
+			"metadata": map[string]interface{}{
+				"name": "web-ingress", "namespace": "default",
+			},
+			"spec": map[string]interface{}{
+				"tls": []interface{}{
+					map[string]interface{}{
+						"secretName": "tls-cert",
+					},
+				},
+			},
+		}},
+		// StatefulSet with serviceName
+		{Object: map[string]interface{}{
+			"apiVersion": "apps/v1", "kind": "StatefulSet",
+			"metadata": map[string]interface{}{
+				"name": "db", "namespace": "default",
+			},
+			"spec": map[string]interface{}{
+				"serviceName": "headless-svc",
+			},
+		}},
+		// PV with storageClassName
+		{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "PersistentVolume",
+			"metadata": map[string]interface{}{"name": "pv-1"},
+			"spec": map[string]interface{}{
+				"storageClassName": "fast-ssd",
+			},
+		}},
+	}
+
+	g.Load(objs)
+
+	tests := []struct {
+		name     string
+		from     ObjectRef
+		toKind   string
+		toName   string
+	}{
+		{"Pod->Secret (imagePullSecrets)", ObjectRef{Kind: "Pod", Namespace: "default", Name: "app"}, "Secret", "pull-secret"},
+		{"Pod->Secret (env secretKeyRef)", ObjectRef{Kind: "Pod", Namespace: "default", Name: "app"}, "Secret", "db-creds"},
+		{"Pod->ConfigMap (env configMapKeyRef)", ObjectRef{Kind: "Pod", Namespace: "default", Name: "app"}, "ConfigMap", "env-config"},
+		{"Pod->Node", ObjectRef{Kind: "Pod", Namespace: "default", Name: "app"}, "Node", "node-1"},
+		{"Ingress->Secret (TLS)", ObjectRef{Group: "networking.k8s.io", Kind: "Ingress", Namespace: "default", Name: "web-ingress"}, "Secret", "tls-cert"},
+		{"StatefulSet->Service", ObjectRef{Group: "apps", Kind: "StatefulSet", Namespace: "default", Name: "db"}, "Service", "headless-svc"},
+		{"PV->StorageClass", ObjectRef{Kind: "PersistentVolume", Name: "pv-1"}, "StorageClass", "fast-ssd"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deps := g.DependenciesOf(tt.from)
+			found := false
+			for _, dep := range deps {
+				if dep.To.Kind == tt.toKind && dep.To.Name == tt.toName {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("expected %s -> %s/%s, got deps: %v", tt.from, tt.toKind, tt.toName, deps)
+			}
+		})
+	}
+}

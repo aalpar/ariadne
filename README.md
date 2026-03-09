@@ -124,13 +124,26 @@ Direct field references between known K8s resource types:
 |---|---|---|
 | Pod | ServiceAccount | `spec.serviceAccountName` |
 | Pod | ConfigMap | `spec.volumes[*].configMap.name` |
-| Pod | ConfigMap | `spec.containers[*].envFrom[*].configMapRef.name` |
+| Pod | ConfigMap | `spec.volumes[*].projected.sources[*].configMap.name` |
+| Pod | ConfigMap | `spec.{,init,ephemeral}Containers[*].envFrom[*].configMapRef.name` |
+| Pod | ConfigMap | `spec.{,init,ephemeral}Containers[*].env[*].valueFrom.configMapKeyRef.name` |
+| Pod | Secret | `spec.imagePullSecrets[*].name` |
 | Pod | Secret | `spec.volumes[*].secret.secretName` |
-| Pod | Secret | `spec.containers[*].envFrom[*].secretRef.name` |
+| Pod | Secret | `spec.volumes[*].projected.sources[*].secret.name` |
+| Pod | Secret | `spec.{,init,ephemeral}Containers[*].envFrom[*].secretRef.name` |
+| Pod | Secret | `spec.{,init,ephemeral}Containers[*].env[*].valueFrom.secretKeyRef.name` |
 | Pod | PersistentVolumeClaim | `spec.volumes[*].persistentVolumeClaim.claimName` |
+| Pod | Node | `spec.nodeName` |
+| Pod | PriorityClass | `spec.priorityClassName` |
+| Pod | RuntimeClass | `spec.runtimeClassName` |
 | PVC | PersistentVolume | `spec.volumeName` |
 | PVC | StorageClass | `spec.storageClassName` |
+| PV | StorageClass | `spec.storageClassName` |
 | Ingress | Service | `spec.rules[*].http.paths[*].backend.service.name` |
+| Ingress | Service | `spec.defaultBackend.service.name` |
+| Ingress | Secret | `spec.tls[*].secretName` |
+| Ingress | IngressClass | `spec.ingressClassName` |
+| StatefulSet | Service | `spec.serviceName` |
 | *any* | *owner* | `metadata.ownerReferences` |
 
 ### Selector

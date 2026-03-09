@@ -70,6 +70,112 @@ func NewStructuralResolver() Resolver {
 			ToKind:    "Service",
 			FieldPath: "spec.rules[*].http.paths[*].backend.service.name",
 		},
+		// Ingress -> Service (default backend)
+		RefRule{
+			FromGroup: "networking.k8s.io", FromKind: "Ingress",
+			ToKind:    "Service",
+			FieldPath: "spec.defaultBackend.service.name",
+		},
+		// Ingress -> Secret (TLS)
+		RefRule{
+			FromGroup: "networking.k8s.io", FromKind: "Ingress",
+			ToKind:    "Secret",
+			FieldPath: "spec.tls[*].secretName",
+		},
+		// Ingress -> IngressClass
+		RefRule{
+			FromGroup: "networking.k8s.io", FromKind: "Ingress",
+			ToGroup: "networking.k8s.io", ToKind: "IngressClass",
+			FieldPath: "spec.ingressClassName",
+		},
+		// Pod -> Secret (imagePullSecrets)
+		RefRule{
+			FromKind: "Pod", ToKind: "Secret",
+			FieldPath: "spec.imagePullSecrets[*].name",
+		},
+		// Pod -> ConfigMap (env valueFrom)
+		RefRule{
+			FromKind: "Pod", ToKind: "ConfigMap",
+			FieldPath: "spec.containers[*].env[*].valueFrom.configMapKeyRef.name",
+		},
+		// Pod -> Secret (env valueFrom)
+		RefRule{
+			FromKind: "Pod", ToKind: "Secret",
+			FieldPath: "spec.containers[*].env[*].valueFrom.secretKeyRef.name",
+		},
+		// Pod -> ConfigMap (projected volumes)
+		RefRule{
+			FromKind: "Pod", ToKind: "ConfigMap",
+			FieldPath: "spec.volumes[*].projected.sources[*].configMap.name",
+		},
+		// Pod -> Secret (projected volumes)
+		RefRule{
+			FromKind: "Pod", ToKind: "Secret",
+			FieldPath: "spec.volumes[*].projected.sources[*].secret.name",
+		},
+		// Pod -> Node
+		RefRule{
+			FromKind: "Pod", ToKind: "Node",
+			FieldPath: "spec.nodeName",
+		},
+		// Pod -> PriorityClass
+		RefRule{
+			FromKind: "Pod",
+			ToGroup: "scheduling.k8s.io", ToKind: "PriorityClass",
+			FieldPath: "spec.priorityClassName",
+		},
+		// Pod -> RuntimeClass
+		RefRule{
+			FromKind: "Pod",
+			ToGroup: "node.k8s.io", ToKind: "RuntimeClass",
+			FieldPath: "spec.runtimeClassName",
+		},
+		// StatefulSet -> Service (headless)
+		RefRule{
+			FromGroup: "apps", FromKind: "StatefulSet",
+			ToKind:    "Service",
+			FieldPath: "spec.serviceName",
+		},
+		// PV -> StorageClass
+		RefRule{
+			FromKind: "PersistentVolume",
+			ToGroup: "storage.k8s.io", ToKind: "StorageClass",
+			FieldPath: "spec.storageClassName",
+		},
+		// initContainers mirrors
+		RefRule{
+			FromKind: "Pod", ToKind: "ConfigMap",
+			FieldPath: "spec.initContainers[*].envFrom[*].configMapRef.name",
+		},
+		RefRule{
+			FromKind: "Pod", ToKind: "Secret",
+			FieldPath: "spec.initContainers[*].envFrom[*].secretRef.name",
+		},
+		RefRule{
+			FromKind: "Pod", ToKind: "ConfigMap",
+			FieldPath: "spec.initContainers[*].env[*].valueFrom.configMapKeyRef.name",
+		},
+		RefRule{
+			FromKind: "Pod", ToKind: "Secret",
+			FieldPath: "spec.initContainers[*].env[*].valueFrom.secretKeyRef.name",
+		},
+		// ephemeralContainers mirrors
+		RefRule{
+			FromKind: "Pod", ToKind: "ConfigMap",
+			FieldPath: "spec.ephemeralContainers[*].envFrom[*].configMapRef.name",
+		},
+		RefRule{
+			FromKind: "Pod", ToKind: "Secret",
+			FieldPath: "spec.ephemeralContainers[*].envFrom[*].secretRef.name",
+		},
+		RefRule{
+			FromKind: "Pod", ToKind: "ConfigMap",
+			FieldPath: "spec.ephemeralContainers[*].env[*].valueFrom.configMapKeyRef.name",
+		},
+		RefRule{
+			FromKind: "Pod", ToKind: "Secret",
+			FieldPath: "spec.ephemeralContainers[*].env[*].valueFrom.secretKeyRef.name",
+		},
 	)
 
 	return &structuralResolver{rules: rules}
