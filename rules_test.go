@@ -378,6 +378,148 @@ func TestRefRule_ReverseWithNamespace(t *testing.T) {
 	}
 }
 
+func TestExtractRawValues_String(t *testing.T) {
+	obj := map[string]interface{}{
+		"spec": map[string]interface{}{
+			"volumeName": "my-pv",
+		},
+	}
+	vals := extractRawValues(obj, "spec.volumeName")
+	if len(vals) != 1 {
+		t.Fatalf("expected 1 value, got %d", len(vals))
+	}
+	if s, ok := vals[0].(string); !ok || s != "my-pv" {
+		t.Fatalf("expected string 'my-pv', got %v", vals[0])
+	}
+}
+
+func TestExtractRawValues_Map(t *testing.T) {
+	obj := map[string]interface{}{
+		"spec": map[string]interface{}{
+			"scaleTargetRef": map[string]interface{}{
+				"apiVersion": "apps/v1",
+				"kind":       "Deployment",
+				"name":       "web",
+			},
+		},
+	}
+	vals := extractRawValues(obj, "spec.scaleTargetRef")
+	if len(vals) != 1 {
+		t.Fatalf("expected 1 value, got %d", len(vals))
+	}
+	m, ok := vals[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map, got %T", vals[0])
+	}
+	if m["kind"] != "Deployment" {
+		t.Fatalf("expected kind=Deployment, got %v", m["kind"])
+	}
+}
+
+func TestExtractRawValues_ArrayOfMaps(t *testing.T) {
+	obj := map[string]interface{}{
+		"spec": map[string]interface{}{
+			"refs": []interface{}{
+				map[string]interface{}{
+					"kind": "Service",
+					"name": "svc-a",
+				},
+				map[string]interface{}{
+					"kind": "Service",
+					"name": "svc-b",
+				},
+			},
+		},
+	}
+	vals := extractRawValues(obj, "spec.refs[*]")
+	if len(vals) != 2 {
+		t.Fatalf("expected 2 values, got %d", len(vals))
+	}
+}
+
+func TestParseTypedRef(t *testing.T) {
+	tests := []struct {
+		name  string
+		input map[string]interface{}
+		want  ObjectRef
+		ok    bool
+	}{
+		{
+			name: "apiVersion with group",
+			input: map[string]interface{}{
+				"apiVersion": "apps/v1",
+				"kind":       "Deployment",
+				"name":       "web",
+			},
+			want: ObjectRef{Group: "apps", Kind: "Deployment", Name: "web"},
+			ok:   true,
+		},
+		{
+			name: "apiGroup field",
+			input: map[string]interface{}{
+				"apiGroup": "rbac.authorization.k8s.io",
+				"kind":     "Role",
+				"name":     "admin",
+			},
+			want: ObjectRef{Group: "rbac.authorization.k8s.io", Kind: "Role", Name: "admin"},
+			ok:   true,
+		},
+		{
+			name: "group field",
+			input: map[string]interface{}{
+				"group": "apps",
+				"kind":  "Deployment",
+				"name":  "web",
+			},
+			want: ObjectRef{Group: "apps", Kind: "Deployment", Name: "web"},
+			ok:   true,
+		},
+		{
+			name: "core apiVersion (no group)",
+			input: map[string]interface{}{
+				"apiVersion": "v1",
+				"kind":       "Service",
+				"name":       "my-svc",
+			},
+			want: ObjectRef{Group: "", Kind: "Service", Name: "my-svc"},
+			ok:   true,
+		},
+		{
+			name: "with namespace",
+			input: map[string]interface{}{
+				"apiGroup":  "",
+				"kind":      "Service",
+				"name":      "my-svc",
+				"namespace": "prod",
+			},
+			want: ObjectRef{Group: "", Kind: "Service", Namespace: "prod", Name: "my-svc"},
+			ok:   true,
+		},
+		{
+			name:  "missing kind",
+			input: map[string]interface{}{"name": "foo"},
+			ok:    false,
+		},
+		{
+			name:  "missing name",
+			input: map[string]interface{}{"kind": "Pod"},
+			ok:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := parseTypedRef(tt.input)
+			if ok != tt.ok {
+				t.Fatalf("parseTypedRef ok=%v, want %v", ok, tt.ok)
+			}
+			if ok && got != tt.want {
+				t.Fatalf("parseTypedRef = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // stubLookup is a simple Lookup implementation for unit tests.
 type stubLookup struct {
 	objects map[ObjectRef]*unstructured.Unstructured

@@ -214,6 +214,37 @@ func resolveRefReverse(ref ObjectRef, obj *unstructured.Unstructured, rule RefRu
 	return edges
 }
 
+// parseTypedRef extracts an ObjectRef from a typed reference map.
+// Expects at minimum "kind" and "name" keys. Group is read from
+// "apiGroup", "group", or parsed from "apiVersion". Namespace is
+// read from "namespace" if present.
+func parseTypedRef(m map[string]interface{}) (ObjectRef, bool) {
+	kind, _ := m["kind"].(string)
+	name, _ := m["name"].(string)
+	if kind == "" || name == "" {
+		return ObjectRef{}, false
+	}
+
+	var group string
+	if g, ok := m["apiGroup"].(string); ok {
+		group = g
+	} else if g, ok := m["group"].(string); ok {
+		group = g
+	} else if av, ok := m["apiVersion"].(string); ok {
+		group = extractGroup(av)
+	}
+
+	ref := ObjectRef{
+		Group: group,
+		Kind:  kind,
+		Name:  name,
+	}
+	if ns, ok := m["namespace"].(string); ok {
+		ref.Namespace = ns
+	}
+	return ref, true
+}
+
 func resolveLabelSelector(ref ObjectRef, obj *unstructured.Unstructured, rule LabelSelectorRule, lookup Lookup) []Edge {
 	if ref.Group != rule.FromGroup || ref.Kind != rule.FromKind {
 		return resolveLabelSelectorReverse(ref, obj, rule, lookup)
@@ -286,6 +317,50 @@ func resolveLabelSelectorReverse(ref ObjectRef, obj *unstructured.Unstructured, 
 		}
 	}
 	return edges
+}
+
+// extractRawValues extracts raw values (strings, maps, etc.) from a
+// nested map using a dot-separated field path. Like extractFieldValues
+// but returns the leaf values without type restriction.
+func extractRawValues(obj map[string]interface{}, path string) []interface{} {
+	parts := splitFieldPath(path)
+	return extractRawRecursive(obj, parts)
+}
+
+func extractRawRecursive(data interface{}, parts []string) []interface{} {
+	if len(parts) == 0 {
+		return []interface{}{data}
+	}
+
+	part := parts[0]
+	rest := parts[1:]
+
+	if strings.HasSuffix(part, "[*]") {
+		key := strings.TrimSuffix(part, "[*]")
+		m, ok := data.(map[string]interface{})
+		if !ok {
+			return nil
+		}
+		arr, ok := m[key].([]interface{})
+		if !ok {
+			return nil
+		}
+		var result []interface{}
+		for _, item := range arr {
+			result = append(result, extractRawRecursive(item, rest)...)
+		}
+		return result
+	}
+
+	m, ok := data.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	val, ok := m[part]
+	if !ok {
+		return nil
+	}
+	return extractRawRecursive(val, rest)
 }
 
 // extractFieldValues extracts string values from a nested map using a
