@@ -53,6 +53,18 @@ type LabelSelectorRule struct {
 
 func (LabelSelectorRule) rule() {}
 
+// LabelRefRule matches a label whose value is the name of a target resource.
+// For example, EndpointSlice has label "kubernetes.io/service-name" whose
+// value is the Service name.
+type LabelRefRule struct {
+	FromGroup, FromKind string
+	ToGroup, ToKind     string
+	LabelKey            string // label on the From object
+	ClusterScoped       bool   // target kind has no namespace
+}
+
+func (LabelRefRule) rule() {}
+
 // NewRuleResolver creates a Resolver from declarative rules.
 func NewRuleResolver(name string, rules ...Rule) Resolver {
 	return &ruleResolver{name: name, rules: rules}
@@ -72,6 +84,8 @@ func (r *ruleResolver) Extract(obj *unstructured.Unstructured) []Edge {
 		switch rule := rule.(type) {
 		case RefRule:
 			edges = append(edges, extractRefForward(ref, obj, rule, r.name)...)
+		case LabelRefRule:
+			edges = append(edges, extractLabelRefForward(ref, obj, rule, r.name)...)
 		// LabelSelectorRule: no extraction without lookup
 		}
 	}
@@ -88,6 +102,8 @@ func (r *ruleResolver) Resolve(obj *unstructured.Unstructured, lookup Lookup) []
 			edges = append(edges, resolveRef(ref, obj, rule, lookup, r.name)...)
 		case LabelSelectorRule:
 			edges = append(edges, resolveLabelSelector(ref, obj, rule, lookup, r.name)...)
+		case LabelRefRule:
+			edges = append(edges, resolveLabelRef(ref, obj, rule, lookup, r.name)...)
 		}
 	}
 
@@ -533,6 +549,83 @@ func resolveLabelSelectorReverse(ref ObjectRef, obj *unstructured.Unstructured, 
 				Type:     EdgeLabelSelector,
 				Resolver: resolverName,
 				Field:    rule.SelectorFieldPath,
+			})
+		}
+	}
+	return edges
+}
+
+// extractLabelRefForward extracts a forward reference edge from a label value.
+func extractLabelRefForward(ref ObjectRef, obj *unstructured.Unstructured, rule LabelRefRule, resolverName string) []Edge {
+	if ref.Group != rule.FromGroup || ref.Kind != rule.FromKind {
+		return nil
+	}
+
+	name := obj.GetLabels()[rule.LabelKey]
+	if name == "" {
+		return nil
+	}
+
+	var ns string
+	if !rule.ClusterScoped {
+		ns = ref.Namespace
+	}
+
+	return []Edge{{
+		From:     ref,
+		To:       ObjectRef{Group: rule.ToGroup, Kind: rule.ToKind, Namespace: ns, Name: name},
+		Type:     EdgeRef,
+		Resolver: resolverName,
+		Field:    "metadata.labels[" + rule.LabelKey + "]",
+	}}
+}
+
+func resolveLabelRef(ref ObjectRef, obj *unstructured.Unstructured, rule LabelRefRule, lookup Lookup, resolverName string) []Edge {
+	if ref.Group != rule.FromGroup || ref.Kind != rule.FromKind {
+		return resolveLabelRefReverse(ref, obj, rule, lookup, resolverName)
+	}
+
+	name := obj.GetLabels()[rule.LabelKey]
+	if name == "" {
+		return nil
+	}
+
+	field := "metadata.labels[" + rule.LabelKey + "]"
+
+	// Try same namespace, then cluster-scoped.
+	sameNS := ObjectRef{Group: rule.ToGroup, Kind: rule.ToKind, Namespace: ref.Namespace, Name: name}
+	if _, ok := lookup.Get(sameNS); ok {
+		return []Edge{{From: ref, To: sameNS, Type: EdgeRef, Resolver: resolverName, Field: field}}
+	}
+	clusterScoped := ObjectRef{Group: rule.ToGroup, Kind: rule.ToKind, Name: name}
+	if _, ok := lookup.Get(clusterScoped); ok {
+		return []Edge{{From: ref, To: clusterScoped, Type: EdgeRef, Resolver: resolverName, Field: field}}
+	}
+	return nil
+}
+
+func resolveLabelRefReverse(ref ObjectRef, obj *unstructured.Unstructured, rule LabelRefRule, lookup Lookup, resolverName string) []Edge {
+	if ref.Group != rule.ToGroup || ref.Kind != rule.ToKind {
+		return nil
+	}
+
+	var sources []*unstructured.Unstructured
+	if ref.Namespace != "" {
+		sources = lookup.ListInNamespace(rule.FromGroup, rule.FromKind, ref.Namespace)
+	} else {
+		sources = lookup.List(rule.FromGroup, rule.FromKind)
+	}
+
+	field := "metadata.labels[" + rule.LabelKey + "]"
+	var edges []Edge
+	for _, src := range sources {
+		if src.GetLabels()[rule.LabelKey] == ref.Name {
+			edges = append(edges, Edge{
+				From:     RefFromUnstructured(src),
+				To:       ref,
+				Type:     EdgeRef,
+				Resolver: resolverName,
+				Field:    field,
 			})
 		}
 	}

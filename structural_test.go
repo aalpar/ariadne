@@ -473,6 +473,85 @@ func TestStructuralResolver_StorageAndSARules(t *testing.T) {
 	}
 }
 
+func TestStructuralResolver_EndpointSliceToService(t *testing.T) {
+	g := New(WithResolver(NewStructuralResolver()))
+
+	svc := unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Service",
+		"metadata": map[string]interface{}{
+			"name": "my-svc", "namespace": "default",
+		},
+	}}
+
+	eps := unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "discovery.k8s.io/v1", "kind": "EndpointSlice",
+		"metadata": map[string]interface{}{
+			"name": "my-svc-abc", "namespace": "default",
+			"labels": map[string]interface{}{
+				"kubernetes.io/service-name": "my-svc",
+			},
+		},
+	}}
+
+	g.Load([]unstructured.Unstructured{svc, eps})
+
+	epsRef := ObjectRef{Group: "discovery.k8s.io", Kind: "EndpointSlice", Namespace: "default", Name: "my-svc-abc"}
+	deps := g.DependenciesOf(epsRef)
+	if len(deps) != 1 {
+		t.Fatalf("expected 1 dependency, got %d: %v", len(deps), deps)
+	}
+	if deps[0].To.Kind != "Service" || deps[0].To.Name != "my-svc" {
+		t.Fatalf("unexpected target: %v", deps[0].To)
+	}
+	if deps[0].Resolver != "structural" {
+		t.Fatalf("expected resolver 'structural', got %q", deps[0].Resolver)
+	}
+
+	// Verify reverse: Service has EndpointSlice as dependent.
+	svcRef := ObjectRef{Kind: "Service", Namespace: "default", Name: "my-svc"}
+	dependents := g.DependentsOf(svcRef)
+	if len(dependents) != 1 {
+		t.Fatalf("expected 1 dependent, got %d: %v", len(dependents), dependents)
+	}
+	if dependents[0].From.Kind != "EndpointSlice" {
+		t.Fatalf("expected dependent to be EndpointSlice, got %v", dependents[0].From)
+	}
+}
+
+func TestStructuralResolver_EndpointSliceReverse(t *testing.T) {
+	g := New(WithResolver(NewStructuralResolver()))
+
+	eps := unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "discovery.k8s.io/v1", "kind": "EndpointSlice",
+		"metadata": map[string]interface{}{
+			"name": "my-svc-abc", "namespace": "default",
+			"labels": map[string]interface{}{
+				"kubernetes.io/service-name": "my-svc",
+			},
+		},
+	}}
+
+	svc := unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Service",
+		"metadata": map[string]interface{}{
+			"name": "my-svc", "namespace": "default",
+		},
+	}}
+
+	// Add EndpointSlice first, then Service — reverse resolution must discover the edge.
+	g.Add(eps)
+	g.Add(svc)
+
+	epsRef := ObjectRef{Group: "discovery.k8s.io", Kind: "EndpointSlice", Namespace: "default", Name: "my-svc-abc"}
+	deps := g.DependenciesOf(epsRef)
+	if len(deps) != 1 {
+		t.Fatalf("expected 1 dependency via reverse resolution, got %d: %v", len(deps), deps)
+	}
+	if deps[0].To.Kind != "Service" || deps[0].To.Name != "my-svc" {
+		t.Fatalf("unexpected target: %v", deps[0].To)
+	}
+}
+
 func TestStructuralResolver_Extract_ClusterScopedTarget(t *testing.T) {
 	r := NewStructuralResolver()
 

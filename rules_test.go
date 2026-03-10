@@ -930,6 +930,216 @@ func TestRefRule_Extract_SkipsNonMatchingKind(t *testing.T) {
 	}
 }
 
+func TestLabelRefRule_Forward(t *testing.T) {
+	r := NewRuleResolver("test", LabelRefRule{
+		FromGroup: "discovery.k8s.io", FromKind: "EndpointSlice",
+		ToKind:   "Service",
+		LabelKey: "kubernetes.io/service-name",
+	})
+
+	eps := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "discovery.k8s.io/v1", "kind": "EndpointSlice",
+		"metadata": map[string]interface{}{
+			"name": "my-svc-abc", "namespace": "default",
+			"labels": map[string]interface{}{
+				"kubernetes.io/service-name": "my-svc",
+			},
+		},
+	}}
+
+	svc := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Service",
+		"metadata": map[string]interface{}{
+			"name": "my-svc", "namespace": "default",
+		},
+	}}
+
+	lookup := &stubLookup{
+		objects: map[ObjectRef]*unstructured.Unstructured{
+			{Kind: "Service", Namespace: "default", Name: "my-svc"}: svc,
+		},
+	}
+
+	edges := r.Resolve(eps, lookup)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d: %v", len(edges), edges)
+	}
+	if edges[0].From.Kind != "EndpointSlice" || edges[0].To.Kind != "Service" {
+		t.Fatalf("unexpected edge: %v -> %v", edges[0].From, edges[0].To)
+	}
+	if edges[0].To.Name != "my-svc" {
+		t.Fatalf("expected target name my-svc, got %q", edges[0].To.Name)
+	}
+	if edges[0].Type != EdgeRef {
+		t.Fatalf("expected EdgeRef, got %v", edges[0].Type)
+	}
+	if edges[0].Field != "metadata.labels[kubernetes.io/service-name]" {
+		t.Fatalf("unexpected field: %q", edges[0].Field)
+	}
+}
+
+func TestLabelRefRule_Reverse(t *testing.T) {
+	r := NewRuleResolver("test", LabelRefRule{
+		FromGroup: "discovery.k8s.io", FromKind: "EndpointSlice",
+		ToKind:   "Service",
+		LabelKey: "kubernetes.io/service-name",
+	})
+
+	// Service is being added; EndpointSlice already exists.
+	svc := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Service",
+		"metadata": map[string]interface{}{
+			"name": "my-svc", "namespace": "default",
+		},
+	}}
+
+	eps := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "discovery.k8s.io/v1", "kind": "EndpointSlice",
+		"metadata": map[string]interface{}{
+			"name": "my-svc-abc", "namespace": "default",
+			"labels": map[string]interface{}{
+				"kubernetes.io/service-name": "my-svc",
+			},
+		},
+	}}
+
+	lookup := &stubLookup{
+		objects: map[ObjectRef]*unstructured.Unstructured{
+			{Group: "discovery.k8s.io", Kind: "EndpointSlice", Namespace: "default", Name: "my-svc-abc"}: eps,
+		},
+	}
+
+	edges := r.Resolve(svc, lookup)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 reverse edge, got %d: %v", len(edges), edges)
+	}
+	if edges[0].From.Kind != "EndpointSlice" || edges[0].From.Name != "my-svc-abc" {
+		t.Fatalf("expected edge from EndpointSlice/my-svc-abc, got %v", edges[0].From)
+	}
+	if edges[0].To.Kind != "Service" || edges[0].To.Name != "my-svc" {
+		t.Fatalf("expected edge to Service/my-svc, got %v", edges[0].To)
+	}
+}
+
+func TestLabelRefRule_Extract(t *testing.T) {
+	r := NewRuleResolver("test", LabelRefRule{
+		FromGroup: "discovery.k8s.io", FromKind: "EndpointSlice",
+		ToKind:   "Service",
+		LabelKey: "kubernetes.io/service-name",
+	})
+
+	eps := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "discovery.k8s.io/v1", "kind": "EndpointSlice",
+		"metadata": map[string]interface{}{
+			"name": "my-svc-abc", "namespace": "default",
+			"labels": map[string]interface{}{
+				"kubernetes.io/service-name": "my-svc",
+			},
+		},
+	}}
+
+	edges := r.Extract(eps)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d: %v", len(edges), edges)
+	}
+	if edges[0].To.Kind != "Service" || edges[0].To.Name != "my-svc" {
+		t.Fatalf("unexpected target: %v", edges[0].To)
+	}
+	if edges[0].To.Namespace != "default" {
+		t.Fatalf("expected same-namespace target, got ns=%q", edges[0].To.Namespace)
+	}
+}
+
+func TestLabelRefRule_Extract_ClusterScoped(t *testing.T) {
+	r := NewRuleResolver("test", LabelRefRule{
+		FromKind:      "MyResource",
+		ToKind:        "MyClusterKind",
+		LabelKey:      "example.com/target",
+		ClusterScoped: true,
+	})
+
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "MyResource",
+		"metadata": map[string]interface{}{
+			"name": "res-1", "namespace": "default",
+			"labels": map[string]interface{}{
+				"example.com/target": "global-thing",
+			},
+		},
+	}}
+
+	edges := r.Extract(obj)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(edges))
+	}
+	if edges[0].To.Namespace != "" {
+		t.Fatalf("expected cluster-scoped target (empty ns), got %q", edges[0].To.Namespace)
+	}
+}
+
+func TestLabelRefRule_NoLabel(t *testing.T) {
+	r := NewRuleResolver("test", LabelRefRule{
+		FromGroup: "discovery.k8s.io", FromKind: "EndpointSlice",
+		ToKind:   "Service",
+		LabelKey: "kubernetes.io/service-name",
+	})
+
+	// EndpointSlice without the label.
+	eps := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "discovery.k8s.io/v1", "kind": "EndpointSlice",
+		"metadata": map[string]interface{}{
+			"name": "orphan", "namespace": "default",
+		},
+	}}
+
+	svc := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Service",
+		"metadata": map[string]interface{}{
+			"name": "my-svc", "namespace": "default",
+		},
+	}}
+
+	lookup := &stubLookup{
+		objects: map[ObjectRef]*unstructured.Unstructured{
+			{Kind: "Service", Namespace: "default", Name: "my-svc"}: svc,
+		},
+	}
+
+	edges := r.Resolve(eps, lookup)
+	if len(edges) != 0 {
+		t.Fatalf("expected 0 edges (no label), got %d: %v", len(edges), edges)
+	}
+
+	extractEdges := r.Extract(eps)
+	if len(extractEdges) != 0 {
+		t.Fatalf("expected 0 extract edges (no label), got %d", len(extractEdges))
+	}
+}
+
+func TestLabelRefRule_WrongKind(t *testing.T) {
+	r := NewRuleResolver("test", LabelRefRule{
+		FromGroup: "discovery.k8s.io", FromKind: "EndpointSlice",
+		ToKind:   "Service",
+		LabelKey: "kubernetes.io/service-name",
+	})
+
+	// A Pod with the label — should not match.
+	pod := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Pod",
+		"metadata": map[string]interface{}{
+			"name": "web", "namespace": "default",
+			"labels": map[string]interface{}{
+				"kubernetes.io/service-name": "my-svc",
+			},
+		},
+	}}
+
+	edges := r.Extract(pod)
+	if len(edges) != 0 {
+		t.Fatalf("expected 0 edges (wrong From kind), got %d", len(edges))
+	}
+}
+
 func TestLabelSelectorRule_Extract_ReturnsNil(t *testing.T) {
 	r := NewRuleResolver("test", LabelSelectorRule{
 		FromGroup: "", FromKind: "Service",

@@ -221,6 +221,12 @@ func NewStructuralResolver() Resolver {
 			FieldPath:     "provisioner",
 			ClusterScoped: true,
 		},
+		// EndpointSlice -> Service (label-based reference)
+		LabelRefRule{
+			FromGroup: "discovery.k8s.io", FromKind: "EndpointSlice",
+			ToKind:   "Service",
+			LabelKey: "kubernetes.io/service-name",
+		},
 	)
 
 	rules := NewRuleResolver("structural", allRules...)
