@@ -17,6 +17,7 @@ package ariadne
 import (
 	"testing"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -323,5 +324,72 @@ func TestStructuralResolver_Tier1References(t *testing.T) {
 				t.Fatalf("expected %s -> %s/%s, got deps: %v", tt.from, tt.toKind, tt.toName, deps)
 			}
 		})
+	}
+}
+
+func TestStructuralResolver_Extract_OwnerRef(t *testing.T) {
+	r := NewStructuralResolver()
+
+	pod := newCoreObj("Pod", "default", "web-xyz")
+	pod.SetOwnerReferences([]metav1.OwnerReference{{
+		APIVersion: "apps/v1",
+		Kind:       "ReplicaSet",
+		Name:       "web-abc",
+	}})
+
+	edges := r.Extract(&pod)
+
+	var found bool
+	for _, e := range edges {
+		if e.Field == "metadata.ownerReferences" && e.To.Kind == "ReplicaSet" && e.To.Name == "web-abc" {
+			found = true
+			if e.To.Namespace != "default" {
+				t.Fatalf("ownerRef target should inherit source namespace, got %q", e.To.Namespace)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected ownerRef edge, got: %v", edges)
+	}
+}
+
+func TestStructuralResolver_Extract_RefRule(t *testing.T) {
+	r := NewStructuralResolver()
+
+	pod := newCoreObj("Pod", "default", "web")
+	unstructured.SetNestedField(pod.Object, "my-sa", "spec", "serviceAccountName")
+
+	edges := r.Extract(&pod)
+
+	var found bool
+	for _, e := range edges {
+		if e.To.Kind == "ServiceAccount" && e.To.Name == "my-sa" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected ServiceAccount ref edge from Extract, got: %v", edges)
+	}
+}
+
+func TestStructuralResolver_Extract_ClusterScopedTarget(t *testing.T) {
+	r := NewStructuralResolver()
+
+	pod := newCoreObj("Pod", "default", "web")
+	unstructured.SetNestedField(pod.Object, "node-1", "spec", "nodeName")
+
+	edges := r.Extract(&pod)
+
+	var found bool
+	for _, e := range edges {
+		if e.To.Kind == "Node" && e.To.Name == "node-1" {
+			found = true
+			if e.To.Namespace != "" {
+				t.Fatalf("Node is cluster-scoped, expected empty namespace, got %q", e.To.Namespace)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected Node ref edge from Extract, got: %v", edges)
 	}
 }

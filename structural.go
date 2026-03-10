@@ -230,7 +230,31 @@ type structuralResolver struct {
 
 func (s *structuralResolver) Name() string { return "structural" }
 
-func (s *structuralResolver) Extract(_ *unstructured.Unstructured) []Edge { return nil }
+func (s *structuralResolver) Extract(obj *unstructured.Unstructured) []Edge {
+	edges := s.rules.Extract(obj)
+	edges = append(edges, extractOwnerRefsForward(obj)...)
+	return edges
+}
+
+func extractOwnerRefsForward(obj *unstructured.Unstructured) []Edge {
+	ref := RefFromUnstructured(obj)
+	var edges []Edge
+	for _, owner := range obj.GetOwnerReferences() {
+		edges = append(edges, Edge{
+			From: ref,
+			To: ObjectRef{
+				Group:     extractGroup(owner.APIVersion),
+				Kind:      owner.Kind,
+				Namespace: ref.Namespace,
+				Name:      owner.Name,
+			},
+			Type:     EdgeRef,
+			Resolver: "structural",
+			Field:    "metadata.ownerReferences",
+		})
+	}
+	return edges
+}
 
 func (s *structuralResolver) Resolve(obj *unstructured.Unstructured, lookup Lookup) []Edge {
 	edges := s.rules.Resolve(obj, lookup)

@@ -55,7 +55,12 @@ type crossplaneResolver struct {
 
 func (r *crossplaneResolver) Name() string { return "crossplane" }
 
-func (r *crossplaneResolver) Extract(_ *unstructured.Unstructured) []Edge { return nil }
+func (r *crossplaneResolver) Extract(obj *unstructured.Unstructured) []Edge {
+	if r.ruleResolver != nil {
+		return r.ruleResolver.Extract(obj)
+	}
+	return nil
+}
 
 func (r *crossplaneResolver) Resolve(obj *unstructured.Unstructured, lookup Lookup) []Edge {
 	var edges []Edge

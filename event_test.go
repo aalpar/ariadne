@@ -64,3 +64,34 @@ func TestEventResolver(t *testing.T) {
 		t.Fatalf("expected event dep target to be pod, got %v", eventDeps[0].To)
 	}
 }
+
+func TestEventResolver_Extract(t *testing.T) {
+	r := NewEventResolver()
+
+	event := newCoreObj("Event", "default", "web.12345")
+	unstructured.SetNestedField(event.Object, "v1", "involvedObject", "apiVersion")
+	unstructured.SetNestedField(event.Object, "Pod", "involvedObject", "kind")
+	unstructured.SetNestedField(event.Object, "default", "involvedObject", "namespace")
+	unstructured.SetNestedField(event.Object, "web", "involvedObject", "name")
+
+	edges := r.Extract(&event)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(edges))
+	}
+	if edges[0].To.Kind != "Pod" || edges[0].To.Name != "web" {
+		t.Fatalf("unexpected target: %v", edges[0].To)
+	}
+	if edges[0].Type != EdgeEvent {
+		t.Fatalf("expected EdgeEvent, got %v", edges[0].Type)
+	}
+}
+
+func TestEventResolver_Extract_NonEvent(t *testing.T) {
+	r := NewEventResolver()
+
+	pod := newCoreObj("Pod", "default", "web")
+	edges := r.Extract(&pod)
+	if len(edges) != 0 {
+		t.Fatalf("expected 0 edges for non-Event, got %d", len(edges))
+	}
+}

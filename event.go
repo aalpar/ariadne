@@ -26,7 +26,39 @@ type eventResolver struct{}
 
 func (e *eventResolver) Name() string { return "event" }
 
-func (e *eventResolver) Extract(_ *unstructured.Unstructured) []Edge { return nil }
+func (e *eventResolver) Extract(obj *unstructured.Unstructured) []Edge {
+	ref := RefFromUnstructured(obj)
+	if ref.Kind != "Event" {
+		return nil
+	}
+
+	involved, ok := obj.Object["involvedObject"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	name, _ := involved["name"].(string)
+	ns, _ := involved["namespace"].(string)
+	kind, _ := involved["kind"].(string)
+	apiVersion, _ := involved["apiVersion"].(string)
+
+	if name == "" || kind == "" {
+		return nil
+	}
+
+	return []Edge{{
+		From: ref,
+		To: ObjectRef{
+			Group:     extractGroup(apiVersion),
+			Kind:      kind,
+			Namespace: ns,
+			Name:      name,
+		},
+		Type:     EdgeEvent,
+		Resolver: "event",
+		Field:    "involvedObject",
+	}}
+}
 
 func (e *eventResolver) Resolve(obj *unstructured.Unstructured, lookup Lookup) []Edge {
 	ref := RefFromUnstructured(obj)
