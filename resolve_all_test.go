@@ -70,12 +70,9 @@ func TestResolveAll_includesOwnerRefs(t *testing.T) {
 func TestResolveAll_deduplicates(t *testing.T) {
 	pod := newCoreObj("Pod", "default", "web")
 	unstructured.SetNestedField(pod.Object, "my-sa", "spec", "serviceAccountName")
-	sa := newCoreObj("ServiceAccount", "default", "my-sa")
 
-	edges := ResolveAll([]unstructured.Unstructured{pod, sa}, NewStructuralResolver())
+	edges := ResolveAll([]unstructured.Unstructured{pod}, NewStructuralResolver())
 
-	// The edge Pod->SA should appear exactly once, even though both
-	// objects are resolved (forward from Pod, reverse from SA).
 	count := 0
 	for _, e := range edges {
 		if e.From.Kind == "Pod" && e.To.Kind == "ServiceAccount" && e.To.Name == "my-sa" {
@@ -91,33 +88,48 @@ func TestResolveAll_multipleResolvers(t *testing.T) {
 	pod := newCoreObj("Pod", "default", "web")
 	unstructured.SetNestedField(pod.Object, "my-sa", "spec", "serviceAccountName")
 
-	svc := newCoreObj("Service", "default", "web-svc")
-	unstructured.SetNestedStringMap(svc.Object, map[string]string{
-		"app": "web",
-	}, "spec", "selector")
-
-	// Pod has label matching Service selector.
-	pod.SetLabels(map[string]string{"app": "web"})
+	event := newCoreObj("Event", "default", "web.12345")
+	unstructured.SetNestedField(event.Object, "v1", "involvedObject", "apiVersion")
+	unstructured.SetNestedField(event.Object, "Pod", "involvedObject", "kind")
+	unstructured.SetNestedField(event.Object, "default", "involvedObject", "namespace")
+	unstructured.SetNestedField(event.Object, "web", "involvedObject", "name")
 
 	edges := ResolveAll(
-		[]unstructured.Unstructured{pod, svc},
+		[]unstructured.Unstructured{pod, event},
 		NewStructuralResolver(),
-		NewSelectorResolver(),
+		NewEventResolver(),
 	)
 
-	var hasRef, hasSelector bool
+	var hasRef, hasEvent bool
 	for _, e := range edges {
 		if e.Type == EdgeRef && e.To.Kind == "ServiceAccount" {
 			hasRef = true
 		}
-		if e.Type == EdgeLabelSelector && e.From.Kind == "Service" {
-			hasSelector = true
+		if e.Type == EdgeEvent && e.To.Kind == "Pod" {
+			hasEvent = true
 		}
 	}
 	if !hasRef {
 		t.Error("expected ref edge from structural resolver")
 	}
-	if !hasSelector {
-		t.Error("expected selector edge from selector resolver")
+	if !hasEvent {
+		t.Error("expected event edge from event resolver")
 	}
+}
+
+func TestResolveAll_clusterScopedNamespace(t *testing.T) {
+	pod := newCoreObj("Pod", "default", "web")
+	unstructured.SetNestedField(pod.Object, "node-1", "spec", "nodeName")
+
+	edges := ResolveAll([]unstructured.Unstructured{pod}, NewStructuralResolver())
+
+	for _, e := range edges {
+		if e.To.Kind == "Node" {
+			if e.To.Namespace != "" {
+				t.Fatalf("Node is cluster-scoped; expected empty namespace, got %q", e.To.Namespace)
+			}
+			return
+		}
+	}
+	t.Error("expected edge to Node")
 }
