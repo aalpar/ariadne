@@ -105,8 +105,8 @@ Opt-in resolvers for popular CRD ecosystems, same pattern as existing Gateway/Ky
 
 ### Prometheus / monitoring
 
-- [ ] **ServiceMonitor → Service**: `spec.selector` + `spec.namespaceSelector` — label-selector-based, fits `LabelSelectorRule`. `namespaceSelector` adds cross-namespace matching complexity.
-- [ ] **PodMonitor → Pod**: `spec.selector` + `spec.namespaceSelector` — same pattern as ServiceMonitor.
+- [x] **ServiceMonitor → Service**: `spec.selector` + `spec.namespaceSelector` — label-selector-based with dynamic cross-namespace matching via `NamespaceSelectorFieldPath`. (`prometheus.go`)
+- [x] **PodMonitor → Pod**: `spec.selector` + `spec.namespaceSelector` — same pattern as ServiceMonitor. (`prometheus.go`)
 
 ### Flux CD
 
