@@ -18,11 +18,11 @@ go test -race ./...     # with race detector
 go vet ./...            # static analysis
 ```
 
-No Makefile, no build step — this is a library package.
+No Makefile, no build step — this is a library package. The `cmd/ariadne` CLI can be built with `go build ./cmd/ariadne/`.
 
 ## Architecture
 
-Single-package library (`package ariadne`). All source files are at the repo root.
+Single-package library (`package ariadne`). All source files are at the repo root. The `cmd/ariadne/` directory contains a CLI tool that uses the library.
 
 ### Core flow
 
@@ -39,20 +39,29 @@ Single-package library (`package ariadne`). All source files are at the repo roo
 - **Resolvers are bidirectional** — when object X is added, resolvers emit both "X depends on existing Y" and "existing Z depends on X" edges. This is why resolvers receive a `Lookup` interface.
 - **`Load` vs `Add`**: `Load` inserts all nodes first, then resolves edges, then notifies. `Add` resolves per-object as it goes. Use `Load` for initial sync so resolvers can see the full set.
 - **Listeners fire under the write lock** — expensive listener work must be dispatched to a separate goroutine
+- **`ResolveAll` vs `Graph.Load`**: `Graph.Load` only emits edges between objects that both exist (resolvers check `Lookup.Get`). `ResolveAll` uses a permissive lookup that emits edges even when targets are absent — useful for detecting dangling references. It bypasses the Graph entirely: takes objects + resolvers, returns deduplicated edges.
 
 ### File layout
 
 | File | Purpose |
 |---|---|
 | `types.go` | `ObjectRef`, `Edge`, `EdgeType`, `GraphEvent`, `ChangeListener` |
-| `resolver.go` | `Resolver` and `Lookup` interfaces |
+| `resolver.go` | `Resolver` and `Lookup` interfaces, `ResolveAll` |
 | `graph.go` | `Graph` struct, `New`/`NewDefault`, `Add`/`Remove`/`Load`, query methods, `graphLookup` |
 | `rules.go` | Declarative rule types (`RefRule`, `LabelSelectorRule`), `NewRuleResolver`, field path extraction |
-| `structural.go` | Built-in resolver for known K8s references (30 RefRules for Pod, PVC, PV, Ingress, StatefulSet refs + ownerRefs) |
-| `selector.go` | Built-in resolver for label/selector matching (Service→Pod, NetworkPolicy→Pod) |
+| `structural.go` | Built-in resolver for known K8s references (36 RefRules for Pod, PVC, PV, Ingress, StatefulSet, HPA, RBAC refs + ownerRefs) |
+| `selector.go` | Built-in resolver for label/selector matching (Service→Pod, NetworkPolicy→Pod, PDB→Pod) |
 | `event.go` | Built-in resolver for K8s Event→involvedObject edges |
+| `argocd.go` | Argo CD resolver (Application→Namespace, Application→AppProject) |
+| `crossplane.go` | Crossplane resolver (managed→ProviderConfig, Composition→Composite) |
+| `kyverno.go` | Kyverno resolver (ClusterPolicy/Policy→matched resource kinds) |
+| `gateway.go` | Gateway API resolver (HTTPRoute→Service, HTTPRoute→Gateway, Gateway→GatewayClass) |
+| `clusterapi.go` | Cluster API resolver (Machine/Cluster→infrastructure/bootstrap providers) |
 | `topo.go` | `TopologicalSort` (Kahn's algorithm), `Cycles` (DFS) |
 | `export.go` | `ExportDOT`, `ExportJSON` |
+| `cmd/ariadne/main.go` | CLI entry point, subcommand dispatch |
+| `cmd/ariadne/lint.go` | `ariadne lint` — dangling reference detection using `ResolveAll` |
+| `cmd/ariadne/yaml.go` | YAML decoding, file/directory reading |
 
 ### Resolver hierarchy
 

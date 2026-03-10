@@ -138,12 +138,18 @@ Direct field references between known K8s resource types:
 | Pod | RuntimeClass | `spec.runtimeClassName` |
 | PVC | PersistentVolume | `spec.volumeName` |
 | PVC | StorageClass | `spec.storageClassName` |
-| PV | StorageClass | `spec.storageClassName` |
 | Ingress | Service | `spec.rules[*].http.paths[*].backend.service.name` |
 | Ingress | Service | `spec.defaultBackend.service.name` |
 | Ingress | Secret | `spec.tls[*].secretName` |
 | Ingress | IngressClass | `spec.ingressClassName` |
 | StatefulSet | Service | `spec.serviceName` |
+| PV | StorageClass | `spec.storageClassName` |
+| PV | PersistentVolumeClaim | `spec.claimRef` (typed-ref) |
+| HPA | *scaleTargetRef kind* | `spec.scaleTargetRef` (typed-ref) |
+| RoleBinding | Role/ClusterRole | `roleRef` (typed-ref) |
+| RoleBinding | *subject kinds* | `subjects[*]` (typed-ref) |
+| ClusterRoleBinding | ClusterRole | `roleRef` (typed-ref) |
+| ClusterRoleBinding | *subject kinds* | `subjects[*]` (typed-ref) |
 | *any* | *owner* | `metadata.ownerReferences` |
 
 ### Selector
@@ -161,6 +167,26 @@ Label/selector matching:
 Creates edges from K8s Events to the objects they describe (via
 `involvedObject`). An Event depends on its involved object, not the
 other way around.
+
+## Ecosystem resolvers
+
+Opt-in resolvers for popular CRD ecosystems. Register them with `WithResolver()`:
+
+```go
+g := ariadne.NewDefault(
+	ariadne.WithResolver(ariadne.NewArgoCDResolver()),
+	ariadne.WithResolver(ariadne.NewGatewayAPIResolver()),
+	// ...
+)
+```
+
+| Resolver | Edges |
+|---|---|
+| `NewArgoCDResolver()` | Application→Namespace (destination), Application→AppProject |
+| `NewCrossplaneResolver(managed...)` | Managed resources→ProviderConfig, Composition→Composite instances |
+| `NewKyvernoResolver()` | ClusterPolicy/Policy→matched resource kinds |
+| `NewGatewayAPIResolver()` | HTTPRoute→Service (backendRef), HTTPRoute→Gateway (parentRef), Gateway→GatewayClass |
+| `NewClusterAPIResolver()` | Machine/Cluster→infrastructure and bootstrap providers (typed-refs) |
 
 ## Custom resolvers
 
@@ -251,11 +277,65 @@ g := ariadne.NewDefault(
 Listeners fire synchronously under the write lock. Dispatch expensive work to a
 goroutine.
 
+### Speculative resolution
+
+`Graph.Load` only creates edges between objects that both exist. To discover
+references to *missing* targets (dangling references), use `ResolveAll`:
+
+```go
+edges := ariadne.ResolveAll(objs,
+	ariadne.NewStructuralResolver(),
+	ariadne.NewSelectorResolver(),
+)
+// edges includes references to targets not in objs
+```
+
+`ResolveAll` bypasses the graph — it takes objects and resolvers directly and
+returns all potential edges, deduplicated. This is useful for linting, static
+analysis, and any scenario where you need to know what an object *would*
+reference.
+
 ### Export
 
 ```go
 g.ExportDOT(w)   // Graphviz DOT format
 g.ExportJSON(w)   // JSON with nodes and edges arrays
+```
+
+## CLI: `ariadne lint`
+
+The library ships with a built-in linter that reads Kubernetes YAML manifests
+and reports dangling references — resources that are referenced but not present
+in the input set.
+
+```bash
+# Pipe from kustomize, helm, or other template tools
+kustomize build . | ariadne lint
+helm template my-chart | ariadne lint
+
+# Read files and directories (recursive, *.yaml and *.yml)
+ariadne lint manifests/ extra.yaml
+
+# Stdin when no args
+cat deployment.yaml | ariadne lint
+```
+
+Output is one line per finding:
+
+```
+core/Pod/default/web -> core/Secret/default/app-secret (spec.volumes[*].secret.secretName): not found
+```
+
+Exit codes: 0 = clean, 1 = dangling references found, 2 = usage error.
+
+The linter uses `ResolveAll` with all built-in and ecosystem resolvers. It
+filters out `ownerReferences` (set by controllers at runtime, not by manifest
+authors) and event edges.
+
+Install:
+
+```
+go install github.com/aalpar/ariadne/cmd/ariadne@latest
 ```
 
 ## Concurrency
