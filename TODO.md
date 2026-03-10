@@ -62,3 +62,8 @@ These patterns don't fit RefRule/LabelSelectorRule cleanly. They reveal what a c
 - [x] **Kyverno**: ClusterPolicy/Policy `spec.rules[*].match.resources.kinds` — kind-level matching via custom Resolver. ClusterPolicy matches all namespaces; Policy matches same namespace only. (`kyverno.go`)
 - [x] **Argo CD**: Application `spec.destination.namespace` → Namespace + `spec.project` → AppProject — decomposed into two bare name RefRules. (`argocd.go`)
 - [x] **Crossplane compositeTypeRef**: Composition `spec.compositeTypeRef` (group+kind, no name) — custom Resolver matching all instances of the referenced GroupKind. (`crossplane.go`)
+
+### Extra Stuff
+
+- [x] **PodTemplate extraction**: Extract synthetic `core/v1 PodTemplate` from workloads (Deployment, StatefulSet, DaemonSet, ReplicaSet, Job, CronJob) for static YAML analysis. Opt-in via `WithPodTemplates()`. Pod RefRules are mechanically mirrored to PodTemplate rules. Selector rules match against `template.metadata.labels`. (`podtemplate.go`)
+- [ ] **Terminology clarification**: Is a K8s object a "resource"? Or is "resource" the registered API type (`kubectl api-resources`)?
