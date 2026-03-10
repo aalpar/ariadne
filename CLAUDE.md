@@ -48,11 +48,12 @@ Single-package library (`package ariadne`). All source files are at the repo roo
 | `types.go` | `ObjectRef`, `Edge`, `EdgeType`, `GraphEvent`, `ChangeListener` |
 | `resolver.go` | `Resolver` and `Lookup` interfaces, `ResolveAll` |
 | `graph.go` | `Graph` struct, `New`/`NewDefault`, `Add`/`Remove`/`Load`, query methods, `graphLookup` |
-| `rules.go` | Declarative rule types (`RefRule`, `LabelSelectorRule`), `NewRuleResolver`, field path extraction |
+| `rules.go` | Declarative rule types (`RefRule`, `LabelSelectorRule`, `LabelRefRule`, `AnnotationRefRule`), `NewRuleResolver`, field path extraction |
 | `structural.go` | Built-in resolver for known K8s references (36 RefRules for Pod, PVC, PV, Ingress, StatefulSet, HPA, RBAC refs + ownerRefs) |
 | `selector.go` | Built-in resolver for label/selector matching (Service→Pod, NetworkPolicy→Pod, PDB→Pod) |
 | `event.go` | Built-in resolver for K8s Event→involvedObject edges |
 | `argocd.go` | Argo CD resolver (Application→Namespace, Application→AppProject) |
+| `certmanager.go` | cert-manager resolver (Certificate→Secret, Certificate→Issuer/ClusterIssuer, Ingress→Issuer via annotations) |
 | `crossplane.go` | Crossplane resolver (managed→ProviderConfig, Composition→Composite) |
 | `kyverno.go` | Kyverno resolver (ClusterPolicy/Policy→matched resource kinds) |
 | `gateway.go` | Gateway API resolver (HTTPRoute→Service, HTTPRoute→Gateway, Gateway→GatewayClass) |

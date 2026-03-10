@@ -93,9 +93,9 @@ Opt-in resolvers for popular CRD ecosystems, same pattern as existing Gateway/Ky
 
 ### cert-manager
 
-- [ ] **Certificate → Secret**: `spec.secretName` — bare name ref. The Secret where the cert is stored.
-- [ ] **Certificate → Issuer/ClusterIssuer**: `spec.issuerRef` — typed-ref with name+kind+group. ClusterIssuer is cluster-scoped.
-- [ ] **Ingress → Certificate**: annotation-based (`cert-manager.io/cluster-issuer`, `cert-manager.io/issuer`). Needs custom resolver reading annotations, not field paths.
+- [x] **Certificate → Secret**: `spec.secretName` — bare name ref. (`certmanager.go`)
+- [x] **Certificate → Issuer/ClusterIssuer**: `spec.issuerRef` — typed-ref with name+kind+group. Two rules: Issuer (namespaced) and ClusterIssuer (cluster-scoped). (`certmanager.go`)
+- [x] **Ingress → Issuer/ClusterIssuer**: annotation-based (`cert-manager.io/issuer`, `cert-manager.io/cluster-issuer`). New `AnnotationRefRule` type in `rules.go`. (`certmanager.go`)
 
 ### Istio
 

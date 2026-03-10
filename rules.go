@@ -65,6 +65,18 @@ type LabelRefRule struct {
 
 func (LabelRefRule) rule() {}
 
+// AnnotationRefRule matches an annotation whose value is the name of a target
+// resource. For example, Ingress annotation "cert-manager.io/issuer" whose
+// value is the Issuer name.
+type AnnotationRefRule struct {
+	FromGroup, FromKind string
+	ToGroup, ToKind     string
+	AnnotationKey       string // annotation on the From object
+	ClusterScoped       bool   // target kind has no namespace
+}
+
+func (AnnotationRefRule) rule() {}
+
 // NewRuleResolver creates a Resolver from declarative rules.
 func NewRuleResolver(name string, rules ...Rule) Resolver {
 	return &ruleResolver{name: name, rules: rules}
@@ -86,6 +98,8 @@ func (r *ruleResolver) Extract(obj *unstructured.Unstructured) []Edge {
 			edges = append(edges, extractRefForward(ref, obj, rule, r.name)...)
 		case LabelRefRule:
 			edges = append(edges, extractLabelRefForward(ref, obj, rule, r.name)...)
+		case AnnotationRefRule:
+			edges = append(edges, extractAnnotationRefForward(ref, obj, rule, r.name)...)
 		// LabelSelectorRule: no extraction without lookup
 		}
 	}
@@ -104,6 +118,8 @@ func (r *ruleResolver) Resolve(obj *unstructured.Unstructured, lookup Lookup) []
 			edges = append(edges, resolveLabelSelector(ref, obj, rule, lookup, r.name)...)
 		case LabelRefRule:
 			edges = append(edges, resolveLabelRef(ref, obj, rule, lookup, r.name)...)
+		case AnnotationRefRule:
+			edges = append(edges, resolveAnnotationRef(ref, obj, rule, lookup, r.name)...)
 		}
 	}
 
@@ -620,6 +636,83 @@ func resolveLabelRefReverse(ref ObjectRef, obj *unstructured.Unstructured, rule 
 	var edges []Edge
 	for _, src := range sources {
 		if src.GetLabels()[rule.LabelKey] == ref.Name {
+			edges = append(edges, Edge{
+				From:     RefFromUnstructured(src),
+				To:       ref,
+				Type:     EdgeRef,
+				Resolver: resolverName,
+				Field:    field,
+			})
+		}
+	}
+	return edges
+}
+
+// extractAnnotationRefForward extracts a forward reference edge from an annotation value.
+func extractAnnotationRefForward(ref ObjectRef, obj *unstructured.Unstructured, rule AnnotationRefRule, resolverName string) []Edge {
+	if ref.Group != rule.FromGroup || ref.Kind != rule.FromKind {
+		return nil
+	}
+
+	name := obj.GetAnnotations()[rule.AnnotationKey]
+	if name == "" {
+		return nil
+	}
+
+	var ns string
+	if !rule.ClusterScoped {
+		ns = ref.Namespace
+	}
+
+	return []Edge{{
+		From:     ref,
+		To:       ObjectRef{Group: rule.ToGroup, Kind: rule.ToKind, Namespace: ns, Name: name},
+		Type:     EdgeRef,
+		Resolver: resolverName,
+		Field:    "metadata.annotations[" + rule.AnnotationKey + "]",
+	}}
+}
+
+func resolveAnnotationRef(ref ObjectRef, obj *unstructured.Unstructured, rule AnnotationRefRule, lookup Lookup, resolverName string) []Edge {
+	if ref.Group != rule.FromGroup || ref.Kind != rule.FromKind {
+		return resolveAnnotationRefReverse(ref, obj, rule, lookup, resolverName)
+	}
+
+	name := obj.GetAnnotations()[rule.AnnotationKey]
+	if name == "" {
+		return nil
+	}
+
+	field := "metadata.annotations[" + rule.AnnotationKey + "]"
+
+	// Try same namespace, then cluster-scoped.
+	sameNS := ObjectRef{Group: rule.ToGroup, Kind: rule.ToKind, Namespace: ref.Namespace, Name: name}
+	if _, ok := lookup.Get(sameNS); ok {
+		return []Edge{{From: ref, To: sameNS, Type: EdgeRef, Resolver: resolverName, Field: field}}
+	}
+	clusterScoped := ObjectRef{Group: rule.ToGroup, Kind: rule.ToKind, Name: name}
+	if _, ok := lookup.Get(clusterScoped); ok {
+		return []Edge{{From: ref, To: clusterScoped, Type: EdgeRef, Resolver: resolverName, Field: field}}
+	}
+	return nil
+}
+
+func resolveAnnotationRefReverse(ref ObjectRef, obj *unstructured.Unstructured, rule AnnotationRefRule, lookup Lookup, resolverName string) []Edge {
+	if ref.Group != rule.ToGroup || ref.Kind != rule.ToKind {
+		return nil
+	}
+
+	var sources []*unstructured.Unstructured
+	if ref.Namespace != "" {
+		sources = lookup.ListInNamespace(rule.FromGroup, rule.FromKind, ref.Namespace)
+	} else {
+		sources = lookup.List(rule.FromGroup, rule.FromKind)
+	}
+
+	field := "metadata.annotations[" + rule.AnnotationKey + "]"
+	var edges []Edge
+	for _, src := range sources {
+		if src.GetAnnotations()[rule.AnnotationKey] == ref.Name {
 			edges = append(edges, Edge{
 				From:     RefFromUnstructured(src),
 				To:       ref,
