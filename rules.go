@@ -15,6 +15,7 @@
 package ariadne
 
 import (
+	"slices"
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -49,6 +50,7 @@ type LabelSelectorRule struct {
 	SelectorFieldPath   string
 	TargetNamespace     string // "" = same namespace; "*" = all namespaces
 	TargetLabelsPath    string // optional: path to target's labels (default: metadata.labels)
+	NamespaceSelectorFieldPath string // optional: path to {any: bool, matchNames: []string}
 }
 
 func (LabelSelectorRule) rule() {}
@@ -497,6 +499,34 @@ func parseTypedRef(m map[string]interface{}) (ObjectRef, bool) {
 	return ref, true
 }
 
+// parseNamespaceSelector reads a namespace selector from an object field.
+// Returns (true, nil) for any:true, (false, namespaces) for matchNames,
+// and (false, nil) when the field is absent or empty (same-namespace default).
+func parseNamespaceSelector(obj map[string]interface{}, path string) (all bool, namespaces []string) {
+	raw := extractRawValues(obj, path)
+	if len(raw) == 0 {
+		return false, nil
+	}
+	m, ok := raw[0].(map[string]interface{})
+	if !ok {
+		return false, nil
+	}
+	if any, ok := m["any"].(bool); ok && any {
+		return true, nil
+	}
+	if matchNames, ok := m["matchNames"].([]interface{}); ok {
+		ns := make([]string, 0, len(matchNames))
+		for _, n := range matchNames {
+			if s, ok := n.(string); ok {
+				ns = append(ns, s)
+			}
+		}
+		return false, ns
+	}
+	return false, nil
+}
+
+
 func resolveLabelSelector(ref ObjectRef, obj *unstructured.Unstructured, rule LabelSelectorRule, lookup Lookup, resolverName string) []Edge {
 	if ref.Group != rule.FromGroup || ref.Kind != rule.FromKind {
 		return resolveLabelSelectorReverse(ref, obj, rule, lookup, resolverName)
@@ -507,15 +537,27 @@ func resolveLabelSelector(ref ObjectRef, obj *unstructured.Unstructured, rule La
 		return nil
 	}
 
-	ns := ref.Namespace
-	if rule.TargetNamespace != "" && rule.TargetNamespace != "*" {
-		ns = rule.TargetNamespace
-	}
-
 	var targets []*unstructured.Unstructured
-	if rule.TargetNamespace == "*" {
+	switch {
+	case rule.NamespaceSelectorFieldPath != "":
+		all, namespaces := parseNamespaceSelector(obj.Object, rule.NamespaceSelectorFieldPath)
+		switch {
+		case all:
+			targets = lookup.List(rule.ToGroup, rule.ToKind)
+		case len(namespaces) > 0:
+			for _, ns := range namespaces {
+				targets = append(targets, lookup.ListInNamespace(rule.ToGroup, rule.ToKind, ns)...)
+			}
+		default:
+			targets = lookup.ListInNamespace(rule.ToGroup, rule.ToKind, ref.Namespace)
+		}
+	case rule.TargetNamespace == "*":
 		targets = lookup.List(rule.ToGroup, rule.ToKind)
-	} else {
+	default:
+		ns := ref.Namespace
+		if rule.TargetNamespace != "" {
+			ns = rule.TargetNamespace
+		}
 		targets = lookup.ListInNamespace(rule.ToGroup, rule.ToKind, ns)
 	}
 
@@ -546,14 +588,37 @@ func resolveLabelSelectorReverse(ref ObjectRef, obj *unstructured.Unstructured, 
 	}
 
 	var sources []*unstructured.Unstructured
-	if rule.TargetNamespace == "*" {
+	switch {
+	case rule.NamespaceSelectorFieldPath != "":
+		// Must scan all sources — any source might cross-namespace-target us.
 		sources = lookup.List(rule.FromGroup, rule.FromKind)
-	} else {
+	case rule.TargetNamespace == "*":
+		sources = lookup.List(rule.FromGroup, rule.FromKind)
+	default:
 		sources = lookup.ListInNamespace(rule.FromGroup, rule.FromKind, ref.Namespace)
 	}
 
 	var edges []Edge
 	for _, src := range sources {
+		// When NamespaceSelectorFieldPath is set, check namespace scope.
+		if rule.NamespaceSelectorFieldPath != "" {
+			all, namespaces := parseNamespaceSelector(src.Object, rule.NamespaceSelectorFieldPath)
+			srcRef := RefFromUnstructured(src)
+			switch {
+			case all:
+				// any:true — all namespaces match, proceed to selector check
+			case len(namespaces) > 0:
+				if !slices.Contains(namespaces, ref.Namespace) {
+					continue
+				}
+			default:
+				// No namespaceSelector — same namespace only.
+				if ref.Namespace != srcRef.Namespace {
+					continue
+				}
+			}
+		}
+
 		sel := extractSelector(src.Object, rule.SelectorFieldPath)
 		if sel == nil {
 			continue

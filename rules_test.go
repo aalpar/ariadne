@@ -1140,6 +1140,261 @@ func TestLabelRefRule_WrongKind(t *testing.T) {
 	}
 }
 
+func TestLabelSelectorRule_NamespaceSelectorAny(t *testing.T) {
+	r := NewRuleResolver("test", LabelSelectorRule{
+		FromGroup:                  "monitoring.coreos.com",
+		FromKind:                   "ServiceMonitor",
+		ToKind:                     "Service",
+		SelectorFieldPath:          "spec.selector",
+		NamespaceSelectorFieldPath: "spec.namespaceSelector",
+	})
+
+	sm := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "monitoring.coreos.com/v1", "kind": "ServiceMonitor",
+		"metadata": map[string]interface{}{
+			"name": "mon", "namespace": "monitoring",
+		},
+		"spec": map[string]interface{}{
+			"namespaceSelector": map[string]interface{}{"any": true},
+			"selector": map[string]interface{}{
+				"matchLabels": map[string]interface{}{"app": "web"},
+			},
+		},
+	}}
+
+	svcDefault := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Service",
+		"metadata": map[string]interface{}{
+			"name": "web", "namespace": "default",
+			"labels": map[string]interface{}{"app": "web"},
+		},
+	}}
+
+	svcProd := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Service",
+		"metadata": map[string]interface{}{
+			"name": "web", "namespace": "prod",
+			"labels": map[string]interface{}{"app": "web"},
+		},
+	}}
+
+	lookup := &stubLookup{objects: map[ObjectRef]*unstructured.Unstructured{
+		{Kind: "Service", Namespace: "default", Name: "web"}: svcDefault,
+		{Kind: "Service", Namespace: "prod", Name: "web"}:    svcProd,
+	}}
+
+	edges := r.Resolve(sm, lookup)
+	if len(edges) != 2 {
+		t.Fatalf("any:true should match services in all namespaces, got %d edges: %v", len(edges), edges)
+	}
+}
+
+func TestLabelSelectorRule_NamespaceSelectorMatchNames(t *testing.T) {
+	r := NewRuleResolver("test", LabelSelectorRule{
+		FromGroup:                  "monitoring.coreos.com",
+		FromKind:                   "ServiceMonitor",
+		ToKind:                     "Service",
+		SelectorFieldPath:          "spec.selector",
+		NamespaceSelectorFieldPath: "spec.namespaceSelector",
+	})
+
+	sm := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "monitoring.coreos.com/v1", "kind": "ServiceMonitor",
+		"metadata": map[string]interface{}{
+			"name": "mon", "namespace": "monitoring",
+		},
+		"spec": map[string]interface{}{
+			"namespaceSelector": map[string]interface{}{
+				"matchNames": []interface{}{"prod"},
+			},
+			"selector": map[string]interface{}{
+				"matchLabels": map[string]interface{}{"app": "web"},
+			},
+		},
+	}}
+
+	svcProd := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Service",
+		"metadata": map[string]interface{}{
+			"name": "web", "namespace": "prod",
+			"labels": map[string]interface{}{"app": "web"},
+		},
+	}}
+
+	svcStaging := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Service",
+		"metadata": map[string]interface{}{
+			"name": "web", "namespace": "staging",
+			"labels": map[string]interface{}{"app": "web"},
+		},
+	}}
+
+	lookup := &stubLookup{objects: map[ObjectRef]*unstructured.Unstructured{
+		{Kind: "Service", Namespace: "prod", Name: "web"}:    svcProd,
+		{Kind: "Service", Namespace: "staging", Name: "web"}: svcStaging,
+	}}
+
+	edges := r.Resolve(sm, lookup)
+	if len(edges) != 1 {
+		t.Fatalf("matchNames:[prod] should match only prod, got %d edges: %v", len(edges), edges)
+	}
+	if edges[0].To.Namespace != "prod" {
+		t.Fatalf("expected edge to prod namespace, got %s", edges[0].To.Namespace)
+	}
+}
+
+func TestLabelSelectorRule_NamespaceSelectorAbsent(t *testing.T) {
+	r := NewRuleResolver("test", LabelSelectorRule{
+		FromGroup:                  "monitoring.coreos.com",
+		FromKind:                   "ServiceMonitor",
+		ToKind:                     "Service",
+		SelectorFieldPath:          "spec.selector",
+		NamespaceSelectorFieldPath: "spec.namespaceSelector",
+	})
+
+	sm := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "monitoring.coreos.com/v1", "kind": "ServiceMonitor",
+		"metadata": map[string]interface{}{
+			"name": "mon", "namespace": "default",
+		},
+		"spec": map[string]interface{}{
+			"selector": map[string]interface{}{
+				"matchLabels": map[string]interface{}{"app": "web"},
+			},
+		},
+	}}
+
+	svcSameNS := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Service",
+		"metadata": map[string]interface{}{
+			"name": "web", "namespace": "default",
+			"labels": map[string]interface{}{"app": "web"},
+		},
+	}}
+
+	svcOtherNS := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Service",
+		"metadata": map[string]interface{}{
+			"name": "web", "namespace": "prod",
+			"labels": map[string]interface{}{"app": "web"},
+		},
+	}}
+
+	lookup := &stubLookup{objects: map[ObjectRef]*unstructured.Unstructured{
+		{Kind: "Service", Namespace: "default", Name: "web"}: svcSameNS,
+		{Kind: "Service", Namespace: "prod", Name: "web"}:    svcOtherNS,
+	}}
+
+	edges := r.Resolve(sm, lookup)
+	if len(edges) != 1 {
+		t.Fatalf("absent namespaceSelector should match same namespace only, got %d edges: %v", len(edges), edges)
+	}
+	if edges[0].To.Namespace != "default" {
+		t.Fatalf("expected edge to default namespace, got %s", edges[0].To.Namespace)
+	}
+}
+
+func TestLabelSelectorRule_NamespaceSelectorReverse_Any(t *testing.T) {
+	r := NewRuleResolver("test", LabelSelectorRule{
+		FromGroup:                  "monitoring.coreos.com",
+		FromKind:                   "ServiceMonitor",
+		ToKind:                     "Service",
+		SelectorFieldPath:          "spec.selector",
+		NamespaceSelectorFieldPath: "spec.namespaceSelector",
+	})
+
+	// Service being added; ServiceMonitor already exists in another namespace.
+	svc := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Service",
+		"metadata": map[string]interface{}{
+			"name": "web", "namespace": "prod",
+			"labels": map[string]interface{}{"app": "web"},
+		},
+	}}
+
+	sm := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "monitoring.coreos.com/v1", "kind": "ServiceMonitor",
+		"metadata": map[string]interface{}{
+			"name": "mon", "namespace": "monitoring",
+		},
+		"spec": map[string]interface{}{
+			"namespaceSelector": map[string]interface{}{"any": true},
+			"selector": map[string]interface{}{
+				"matchLabels": map[string]interface{}{"app": "web"},
+			},
+		},
+	}}
+
+	lookup := &stubLookup{objects: map[ObjectRef]*unstructured.Unstructured{
+		{Group: "monitoring.coreos.com", Kind: "ServiceMonitor", Namespace: "monitoring", Name: "mon"}: sm,
+	}}
+
+	edges := r.Resolve(svc, lookup)
+	if len(edges) != 1 {
+		t.Fatalf("reverse with any:true should find cross-namespace ServiceMonitor, got %d edges: %v", len(edges), edges)
+	}
+	if edges[0].From.Kind != "ServiceMonitor" || edges[0].To.Name != "web" {
+		t.Fatalf("unexpected edge: %+v", edges[0])
+	}
+}
+
+func TestLabelSelectorRule_NamespaceSelectorReverse_MatchNames(t *testing.T) {
+	r := NewRuleResolver("test", LabelSelectorRule{
+		FromGroup:                  "monitoring.coreos.com",
+		FromKind:                   "ServiceMonitor",
+		ToKind:                     "Service",
+		SelectorFieldPath:          "spec.selector",
+		NamespaceSelectorFieldPath: "spec.namespaceSelector",
+	})
+
+	// Service in prod — should be matched.
+	svcProd := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Service",
+		"metadata": map[string]interface{}{
+			"name": "web", "namespace": "prod",
+			"labels": map[string]interface{}{"app": "web"},
+		},
+	}}
+
+	// Service in staging — should NOT be matched.
+	svcStaging := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Service",
+		"metadata": map[string]interface{}{
+			"name": "web", "namespace": "staging",
+			"labels": map[string]interface{}{"app": "web"},
+		},
+	}}
+
+	sm := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "monitoring.coreos.com/v1", "kind": "ServiceMonitor",
+		"metadata": map[string]interface{}{
+			"name": "mon", "namespace": "monitoring",
+		},
+		"spec": map[string]interface{}{
+			"namespaceSelector": map[string]interface{}{
+				"matchNames": []interface{}{"prod"},
+			},
+			"selector": map[string]interface{}{
+				"matchLabels": map[string]interface{}{"app": "web"},
+			},
+		},
+	}}
+
+	lookup := &stubLookup{objects: map[ObjectRef]*unstructured.Unstructured{
+		{Group: "monitoring.coreos.com", Kind: "ServiceMonitor", Namespace: "monitoring", Name: "mon"}: sm,
+	}}
+
+	edgesProd := r.Resolve(svcProd, lookup)
+	if len(edgesProd) != 1 {
+		t.Fatalf("reverse matchNames:[prod] should match prod Service, got %d edges", len(edgesProd))
+	}
+
+	edgesStaging := r.Resolve(svcStaging, lookup)
+	if len(edgesStaging) != 0 {
+		t.Fatalf("reverse matchNames:[prod] should NOT match staging Service, got %d edges", len(edgesStaging))
+	}
+}
+
 func TestLabelSelectorRule_Extract_ReturnsNil(t *testing.T) {
 	r := NewRuleResolver("test", LabelSelectorRule{
 		FromGroup: "", FromKind: "Service",
