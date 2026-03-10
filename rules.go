@@ -497,47 +497,14 @@ func extractRawRecursive(data interface{}, parts []string) []interface{} {
 // extractFieldValues extracts string values from a nested map using a
 // dot-separated field path. Supports [*] wildcard for slices.
 func extractFieldValues(obj map[string]interface{}, path string) []string {
-	parts := splitFieldPath(path)
-	return extractRecursive(obj, parts)
-}
-
-func extractRecursive(data interface{}, parts []string) []string {
-	if len(parts) == 0 {
-		if s, ok := data.(string); ok {
-			return []string{s}
+	raw := extractRawValues(obj, path)
+	var result []string
+	for _, v := range raw {
+		if s, ok := v.(string); ok {
+			result = append(result, s)
 		}
-		return nil
 	}
-
-	part := parts[0]
-	rest := parts[1:]
-
-	if strings.HasSuffix(part, "[*]") {
-		key := strings.TrimSuffix(part, "[*]")
-		m, ok := data.(map[string]interface{})
-		if !ok {
-			return nil
-		}
-		arr, ok := m[key].([]interface{})
-		if !ok {
-			return nil
-		}
-		var result []string
-		for _, item := range arr {
-			result = append(result, extractRecursive(item, rest)...)
-		}
-		return result
-	}
-
-	m, ok := data.(map[string]interface{})
-	if !ok {
-		return nil
-	}
-	val, ok := m[part]
-	if !ok {
-		return nil
-	}
-	return extractRecursive(val, rest)
+	return result
 }
 
 // extractSelector navigates to a field path and parses the value as a

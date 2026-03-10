@@ -30,7 +30,7 @@ tools embed:
   tree that conflicts with their own.
 
 - **Declarative, shareable rules.** Most resource relationships are expressed as
-  data (`NameRefRule`, `LabelSelectorRule`), not code. A rule like "Certificate
+  data (`RefRule`, `LabelSelectorRule`), not code. A rule like "Certificate
   references a Secret via `spec.secretName`" is a struct literal, not a
   function. Rules can be packaged, published, and composed — the same primitives
   the built-in resolvers use are available to users for CRDs and custom

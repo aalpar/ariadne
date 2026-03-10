@@ -21,6 +21,31 @@ import (
 	"sort"
 )
 
+func sortedNodes(nodes map[ObjectRef]*node) []ObjectRef {
+	sorted := make([]ObjectRef, 0, len(nodes))
+	for ref := range nodes {
+		sorted = append(sorted, ref)
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].String() < sorted[j].String()
+	})
+	return sorted
+}
+
+func sortedEdges(outEdges map[ObjectRef][]Edge) []Edge {
+	var sorted []Edge
+	for _, ee := range outEdges {
+		sorted = append(sorted, ee...)
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].From.String() != sorted[j].From.String() {
+			return sorted[i].From.String() < sorted[j].From.String()
+		}
+		return sorted[i].To.String() < sorted[j].To.String()
+	})
+	return sorted
+}
+
 // ExportDOT writes the graph in Graphviz DOT format.
 func (g *Graph) ExportDOT(w io.Writer) error {
 	g.mu.RLock()
@@ -30,34 +55,13 @@ func (g *Graph) ExportDOT(w io.Writer) error {
 		return err
 	}
 
-	// Sort nodes for deterministic output
-	nodes := make([]ObjectRef, 0, len(g.nodes))
-	for ref := range g.nodes {
-		nodes = append(nodes, ref)
-	}
-	sort.Slice(nodes, func(i, j int) bool {
-		return nodes[i].String() < nodes[j].String()
-	})
-
-	for _, ref := range nodes {
+	for _, ref := range sortedNodes(g.nodes) {
 		if _, err := fmt.Fprintf(w, "    %q;\n", ref.String()); err != nil {
 			return err
 		}
 	}
 
-	// Sort edges for deterministic output
-	var edges []Edge
-	for _, ee := range g.outEdges {
-		edges = append(edges, ee...)
-	}
-	sort.Slice(edges, func(i, j int) bool {
-		if edges[i].From.String() != edges[j].From.String() {
-			return edges[i].From.String() < edges[j].From.String()
-		}
-		return edges[i].To.String() < edges[j].To.String()
-	})
-
-	for _, e := range edges {
+	for _, e := range sortedEdges(g.outEdges) {
 		label := e.Resolver
 		if e.Field != "" {
 			label += ":" + e.Field
@@ -90,24 +94,8 @@ func (g *Graph) ExportJSON(w io.Writer) error {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 
-	nodes := make([]ObjectRef, 0, len(g.nodes))
-	for ref := range g.nodes {
-		nodes = append(nodes, ref)
-	}
-	sort.Slice(nodes, func(i, j int) bool {
-		return nodes[i].String() < nodes[j].String()
-	})
-
-	var edges []Edge
-	for _, ee := range g.outEdges {
-		edges = append(edges, ee...)
-	}
-	sort.Slice(edges, func(i, j int) bool {
-		if edges[i].From.String() != edges[j].From.String() {
-			return edges[i].From.String() < edges[j].From.String()
-		}
-		return edges[i].To.String() < edges[j].To.String()
-	})
+	nodes := sortedNodes(g.nodes)
+	edges := sortedEdges(g.outEdges)
 
 	jEdges := make([]jsonEdge, len(edges))
 	for i, e := range edges {
