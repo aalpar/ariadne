@@ -104,7 +104,7 @@ func (s *stubResolver) Resolve(obj *unstructured.Unstructured, lookup Lookup) []
 			edges = append(edges, Edge{
 				From:     ref,
 				To:       cmRef,
-				Type:     EdgeLocalNameRef,
+				Type:     EdgeRef,
 				Resolver: "stub",
 				Field:    "test",
 			})
@@ -117,7 +117,7 @@ func (s *stubResolver) Resolve(obj *unstructured.Unstructured, lookup Lookup) []
 			edges = append(edges, Edge{
 				From:     podRef,
 				To:       ref,
-				Type:     EdgeLocalNameRef,
+				Type:     EdgeRef,
 				Resolver: "stub",
 				Field:    "test",
 			})
@@ -228,6 +228,130 @@ func TestLoadBatchesNotifications(t *testing.T) {
 	}
 }
 
+func TestGet(t *testing.T) {
+	g := New()
+	pod := newCoreObj("Pod", "default", "nginx")
+	g.Add(pod)
+
+	ref := ObjectRef{Kind: "Pod", Namespace: "default", Name: "nginx"}
+	obj, ok := g.Get(ref)
+	if !ok {
+		t.Fatal("expected Get to find the pod")
+	}
+	if obj.GetName() != "nginx" {
+		t.Fatalf("expected name 'nginx', got '%s'", obj.GetName())
+	}
+
+	_, ok = g.Get(ObjectRef{Kind: "Pod", Namespace: "default", Name: "missing"})
+	if ok {
+		t.Fatal("expected Get to return false for missing ref")
+	}
+}
+
+func makePodWithVolume(ns, name, configMapName string) unstructured.Unstructured {
+	return unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Pod",
+		"metadata": map[string]interface{}{
+			"name": name, "namespace": ns,
+		},
+		"spec": map[string]interface{}{
+			"volumes": []interface{}{
+				map[string]interface{}{
+					"name": "vol",
+					"configMap": map[string]interface{}{
+						"name": configMapName,
+					},
+				},
+			},
+		},
+	}}
+}
+
+func TestAddReAdd(t *testing.T) {
+	g := New(WithResolver(NewStructuralResolver()))
+
+	cmA := newCoreObj("ConfigMap", "default", "config-a")
+	cmB := newCoreObj("ConfigMap", "default", "config-b")
+	pod := makePodWithVolume("default", "web", "config-a")
+	g.Add(cmA, cmB, pod)
+
+	podRef := ObjectRef{Kind: "Pod", Namespace: "default", Name: "web"}
+	cmARef := ObjectRef{Kind: "ConfigMap", Namespace: "default", Name: "config-a"}
+	cmBRef := ObjectRef{Kind: "ConfigMap", Namespace: "default", Name: "config-b"}
+
+	// Pod should depend on config-a, not config-b.
+	deps := g.DependenciesOf(podRef)
+	if len(deps) != 1 {
+		t.Fatalf("expected 1 dependency, got %d: %v", len(deps), deps)
+	}
+	if deps[0].To != cmARef {
+		t.Fatalf("expected dep to config-a, got %v", deps[0].To)
+	}
+
+	// Re-add pod referencing config-b instead.
+	pod2 := makePodWithVolume("default", "web", "config-b")
+	g.Add(pod2)
+
+	deps = g.DependenciesOf(podRef)
+	if len(deps) != 1 {
+		t.Fatalf("after re-add: expected 1 dependency, got %d: %v", len(deps), deps)
+	}
+	if deps[0].To != cmBRef {
+		t.Fatalf("after re-add: expected dep to config-b, got %v", deps[0].To)
+	}
+
+	// config-a should have no dependents.
+	if len(g.DependentsOf(cmARef)) != 0 {
+		t.Fatal("after re-add: config-a should have no dependents")
+	}
+}
+
+func TestAddReAddNotifications(t *testing.T) {
+	var events []GraphEvent
+	g := New(
+		WithResolver(NewStructuralResolver()),
+		WithListener(func(e GraphEvent) {
+			events = append(events, e)
+		}),
+	)
+
+	cm := newCoreObj("ConfigMap", "default", "config-a")
+	pod := makePodWithVolume("default", "web", "config-a")
+	g.Add(cm, pod)
+
+	// Clear events from initial add.
+	events = nil
+
+	// Re-add the same pod (same spec, same edges).
+	pod2 := makePodWithVolume("default", "web", "config-a")
+	g.Add(pod2)
+
+	// Should see EdgeRemoved + EdgeAdded (old edges cleared, same edges re-resolved).
+	// Should NOT see NodeAdded (node already existed).
+	for _, e := range events {
+		if e.Type == NodeAdded {
+			t.Fatal("re-add should not fire NodeAdded")
+		}
+	}
+
+	edgeRemoved := 0
+	edgeAdded := 0
+	for _, e := range events {
+		switch e.Type {
+		case EdgeRemoved:
+			edgeRemoved++
+		case EdgeAdded:
+			edgeAdded++
+		}
+	}
+	if edgeRemoved == 0 {
+		t.Fatal("re-add should fire EdgeRemoved for old edges")
+	}
+	if edgeAdded == 0 {
+		t.Fatal("re-add should fire EdgeAdded for re-resolved edges")
+	}
+}
+
 // chainResolver creates edges: A -> B -> C (by name convention "a"->"b"->"c")
 type chainResolver struct{}
 
@@ -243,7 +367,7 @@ func (c *chainResolver) Resolve(obj *unstructured.Unstructured, lookup Lookup) [
 		if _, exists := lookup.Get(toRef); exists {
 			edges = append(edges, Edge{
 				From: ref, To: toRef,
-				Type: EdgeLocalNameRef, Resolver: "chain", Field: "test",
+				Type: EdgeRef, Resolver: "chain", Field: "test",
 			})
 		}
 	}
@@ -254,7 +378,7 @@ func (c *chainResolver) Resolve(obj *unstructured.Unstructured, lookup Lookup) [
 		if _, exists := lookup.Get(fromRef); exists {
 			edges = append(edges, Edge{
 				From: fromRef, To: ref,
-				Type: EdgeLocalNameRef, Resolver: "chain", Field: "test",
+				Type: EdgeRef, Resolver: "chain", Field: "test",
 			})
 		}
 	}

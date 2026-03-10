@@ -245,7 +245,7 @@ func resolveOwnerRefs(obj *unstructured.Unstructured, lookup Lookup) []Edge {
 			edges = append(edges, Edge{
 				From:     ref,
 				To:       ownerRef,
-				Type:     EdgeNameRef,
+				Type:     EdgeRef,
 				Resolver: "structural",
 				Field:    "metadata.ownerReferences",
 			})
@@ -266,7 +266,7 @@ func resolveOwnerRefs(obj *unstructured.Unstructured, lookup Lookup) []Edge {
 				edges = append(edges, Edge{
 					From:     RefFromUnstructured(existing),
 					To:       ref,
-					Type:     EdgeNameRef,
+					Type:     EdgeRef,
 					Resolver: "structural",
 					Field:    "metadata.ownerReferences",
 				})

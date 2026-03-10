@@ -35,7 +35,7 @@ func (c *cycleResolver) Resolve(obj *unstructured.Unstructured, lookup Lookup) [
 		if _, exists := lookup.Get(toRef); exists {
 			edges = append(edges, Edge{
 				From: ref, To: toRef,
-				Type: EdgeLocalNameRef, Resolver: "cycle", Field: "test",
+				Type: EdgeRef, Resolver: "cycle", Field: "test",
 			})
 		}
 	}

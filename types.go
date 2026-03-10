@@ -56,8 +56,7 @@ func RefFromUnstructured(obj *unstructured.Unstructured) ObjectRef {
 type EdgeType int
 
 const (
-	EdgeNameRef       EdgeType = iota // direct namespace+name reference
-	EdgeLocalNameRef                  // name reference within same namespace
+	EdgeRef           EdgeType = iota // name-based reference
 	EdgeLabelSelector                 // label/selector match
 	EdgeEvent                         // inferred from K8s Event
 	EdgeCustom                        // user-defined
@@ -65,10 +64,8 @@ const (
 
 func (t EdgeType) String() string {
 	switch t {
-	case EdgeNameRef:
-		return "name_ref"
-	case EdgeLocalNameRef:
-		return "local_name_ref"
+	case EdgeRef:
+		return "ref"
 	case EdgeLabelSelector:
 		return "label_selector"
 	case EdgeEvent:

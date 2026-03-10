@@ -46,11 +46,21 @@ func TestEventResolver(t *testing.T) {
 	g.Load([]unstructured.Unstructured{pod, event})
 
 	podRef := ObjectRef{Kind: "Pod", Namespace: "default", Name: "web"}
-	deps := g.DependenciesOf(podRef)
+	deps := g.DependentsOf(podRef)
 	if len(deps) != 1 {
-		t.Fatalf("expected 1 event dep, got %d", len(deps))
+		t.Fatalf("expected 1 event dependent, got %d", len(deps))
 	}
 	if deps[0].Resolver != "event" {
 		t.Fatalf("expected resolver 'event', got '%s'", deps[0].Resolver)
+	}
+
+	// Event depends on Pod, not the other way around.
+	eventRef := ObjectRef{Kind: "Event", Namespace: "default", Name: "web.abc123"}
+	eventDeps := g.DependenciesOf(eventRef)
+	if len(eventDeps) != 1 {
+		t.Fatalf("expected event to depend on pod, got %d deps", len(eventDeps))
+	}
+	if eventDeps[0].To != podRef {
+		t.Fatalf("expected event dep target to be pod, got %v", eventDeps[0].To)
 	}
 }

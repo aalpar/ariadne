@@ -158,8 +158,9 @@ Label/selector matching:
 
 ### Event
 
-Creates edges from K8s Event `involvedObject` references to the events
-themselves.
+Creates edges from K8s Events to the objects they describe (via
+`involvedObject`). An Event depends on its involved object, not the
+other way around.
 
 ## Custom resolvers
 
@@ -218,6 +219,7 @@ cannot mutate the graph or access edges.
 ### Query
 
 ```go
+g.Get(ref)             // retrieve stored *unstructured.Unstructured
 g.DependenciesOf(ref)  // direct outgoing edges (what ref depends on)
 g.DependentsOf(ref)    // direct incoming edges (what depends on ref)
 g.Upstream(ref)        // transitive closure of DependenciesOf

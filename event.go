@@ -61,8 +61,8 @@ func (e *eventResolver) resolveEvent(ref ObjectRef, obj *unstructured.Unstructur
 	}
 
 	return []Edge{{
-		From:     involvedRef,
-		To:       ref,
+		From:     ref,
+		To:       involvedRef,
 		Type:     EdgeEvent,
 		Resolver: "event",
 		Field:    "involvedObject",
@@ -94,8 +94,8 @@ func (e *eventResolver) resolveReverseEvent(ref ObjectRef, obj *unstructured.Uns
 		if involvedRef == ref {
 			evtRef := RefFromUnstructured(evt)
 			edges = append(edges, Edge{
-				From:     ref,
-				To:       evtRef,
+				From:     evtRef,
+				To:       ref,
 				Type:     EdgeEvent,
 				Resolver: "event",
 				Field:    "involvedObject",

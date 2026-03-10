@@ -81,15 +81,36 @@ func (g *Graph) notify(event GraphEvent) {
 	}
 }
 
-func (g *Graph) addEdge(e Edge) {
+// insertEdge adds an edge if not already present. Returns true if inserted.
+func (g *Graph) insertEdge(e Edge) bool {
 	for _, existing := range g.outEdges[e.From] {
 		if existing == e {
-			return
+			return false
 		}
 	}
 	g.outEdges[e.From] = append(g.outEdges[e.From], e)
 	g.inEdges[e.To] = append(g.inEdges[e.To], e)
-	g.notify(GraphEvent{Type: EdgeAdded, Edge: &e})
+	return true
+}
+
+func (g *Graph) addEdge(e Edge) {
+	if g.insertEdge(e) {
+		g.notify(GraphEvent{Type: EdgeAdded, Edge: &e})
+	}
+}
+
+// removeAllEdges removes all edges involving ref, notifying for each.
+func (g *Graph) removeAllEdges(ref ObjectRef) {
+	for _, e := range append([]Edge(nil), g.outEdges[ref]...) {
+		removeEdgeFromSlice(g.inEdges, e.To, e)
+		g.notify(GraphEvent{Type: EdgeRemoved, Edge: &e})
+	}
+	for _, e := range append([]Edge(nil), g.inEdges[ref]...) {
+		removeEdgeFromSlice(g.outEdges, e.From, e)
+		g.notify(GraphEvent{Type: EdgeRemoved, Edge: &e})
+	}
+	delete(g.outEdges, ref)
+	delete(g.inEdges, ref)
 }
 
 // removeEdgeFromSlice removes the first occurrence of e from the slice at edges[key].
@@ -108,6 +129,9 @@ func removeEdgeFromSlice(edges map[ObjectRef][]Edge, key ObjectRef, e Edge) {
 }
 
 // Add adds objects to the graph, resolves their dependencies, and notifies listeners.
+// Re-adding an existing object updates it in place: stale edges are removed and
+// dependencies are re-resolved from the new object. Use this for incremental
+// watch updates; callers do not need Remove + Add for updates.
 func (g *Graph) Add(objs ...unstructured.Unstructured) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -118,8 +142,15 @@ func (g *Graph) Add(objs ...unstructured.Unstructured) {
 		objCopy := objs[i]
 		ref := RefFromUnstructured(&objCopy)
 
+		_, exists := g.nodes[ref]
+		if exists {
+			g.removeAllEdges(ref)
+		}
+
 		g.nodes[ref] = &node{ref: ref, obj: &objCopy}
-		g.notify(GraphEvent{Type: NodeAdded, Ref: &ref})
+		if !exists {
+			g.notify(GraphEvent{Type: NodeAdded, Ref: &ref})
+		}
 
 		for _, r := range g.resolvers {
 			for _, e := range r.Resolve(&objCopy, lookup) {
@@ -138,24 +169,21 @@ func (g *Graph) Remove(refs ...ObjectRef) {
 		if _, ok := g.nodes[ref]; !ok {
 			continue
 		}
-
-		// Snapshot outgoing edges before mutation, then clean up the other side.
-		for _, e := range append([]Edge(nil), g.outEdges[ref]...) {
-			removeEdgeFromSlice(g.inEdges, e.To, e)
-			g.notify(GraphEvent{Type: EdgeRemoved, Edge: &e})
-		}
-
-		// Snapshot incoming edges before mutation, then clean up the other side.
-		for _, e := range append([]Edge(nil), g.inEdges[ref]...) {
-			removeEdgeFromSlice(g.outEdges, e.From, e)
-			g.notify(GraphEvent{Type: EdgeRemoved, Edge: &e})
-		}
-
-		delete(g.outEdges, ref)
-		delete(g.inEdges, ref)
+		g.removeAllEdges(ref)
 		delete(g.nodes, ref)
 		g.notify(GraphEvent{Type: NodeRemoved, Ref: &ref})
 	}
+}
+
+// Get returns the stored object for the given ref, or false if not present.
+func (g *Graph) Get(ref ObjectRef) (*unstructured.Unstructured, bool) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	n, ok := g.nodes[ref]
+	if !ok {
+		return nil, false
+	}
+	return n.obj, true
 }
 
 // Has returns whether the graph contains the given resource.
@@ -285,16 +313,7 @@ func (g *Graph) Load(objs []unstructured.Unstructured) {
 	for i := range objs {
 		for _, r := range g.resolvers {
 			for _, e := range r.Resolve(g.nodes[refs[i]].obj, lookup) {
-				dup := false
-				for _, existing := range g.outEdges[e.From] {
-					if existing == e {
-						dup = true
-						break
-					}
-				}
-				if !dup {
-					g.outEdges[e.From] = append(g.outEdges[e.From], e)
-					g.inEdges[e.To] = append(g.inEdges[e.To], e)
+				if g.insertEdge(e) {
 					eCopy := e
 					events = append(events, GraphEvent{Type: EdgeAdded, Edge: &eCopy})
 				}

@@ -123,7 +123,7 @@ func resolveBareName(ref ObjectRef, name string, index int, namespaces []string,
 			return []Edge{{
 				From:     ref,
 				To:       toRef,
-				Type:     EdgeNameRef,
+				Type:     EdgeRef,
 				Resolver: resolverName,
 				Field:    rule.FieldPath,
 			}}
@@ -139,14 +139,10 @@ func resolveBareName(ref ObjectRef, name string, index int, namespaces []string,
 		Name:      name,
 	}
 	if _, ok := lookup.Get(sameNS); ok {
-		edgeType := EdgeLocalNameRef
-		if ref.Namespace == "" {
-			edgeType = EdgeNameRef
-		}
 		return []Edge{{
 			From:     ref,
 			To:       sameNS,
-			Type:     edgeType,
+			Type:     EdgeRef,
 			Resolver: resolverName,
 			Field:    rule.FieldPath,
 		}}
@@ -160,7 +156,7 @@ func resolveBareName(ref ObjectRef, name string, index int, namespaces []string,
 		return []Edge{{
 			From:     ref,
 			To:       clusterScoped,
-			Type:     EdgeNameRef,
+			Type:     EdgeRef,
 			Resolver: resolverName,
 			Field:    rule.FieldPath,
 		}}
@@ -189,7 +185,7 @@ func resolveTypedRef(ref ObjectRef, m map[string]interface{}, rule RefRule, look
 			return []Edge{{
 				From:     ref,
 				To:       toRef,
-				Type:     EdgeNameRef,
+				Type:     EdgeRef,
 				Resolver: resolverName,
 				Field:    rule.FieldPath,
 			}}
@@ -201,14 +197,10 @@ func resolveTypedRef(ref ObjectRef, m map[string]interface{}, rule RefRule, look
 	sameNS := toRef
 	sameNS.Namespace = ref.Namespace
 	if _, ok := lookup.Get(sameNS); ok {
-		edgeType := EdgeLocalNameRef
-		if ref.Namespace == "" {
-			edgeType = EdgeNameRef
-		}
 		return []Edge{{
 			From:     ref,
 			To:       sameNS,
-			Type:     edgeType,
+			Type:     EdgeRef,
 			Resolver: resolverName,
 			Field:    rule.FieldPath,
 		}}
@@ -217,7 +209,7 @@ func resolveTypedRef(ref ObjectRef, m map[string]interface{}, rule RefRule, look
 		return []Edge{{
 			From:     ref,
 			To:       toRef,
-			Type:     EdgeNameRef,
+			Type:     EdgeRef,
 			Resolver: resolverName,
 			Field:    rule.FieldPath,
 		}}
@@ -282,20 +274,16 @@ func reverseMatchBareName(srcRef, targetRef ObjectRef, name string, index int, s
 		return &Edge{
 			From:     srcRef,
 			To:       targetRef,
-			Type:     EdgeNameRef,
+			Type:     EdgeRef,
 			Resolver: resolverName,
 			Field:    rule.FieldPath,
 		}
 	}
 
-	edgeType := EdgeLocalNameRef
-	if targetRef.Namespace == "" {
-		edgeType = EdgeNameRef
-	}
 	return &Edge{
 		From:     srcRef,
 		To:       targetRef,
-		Type:     edgeType,
+		Type:     EdgeRef,
 		Resolver: resolverName,
 		Field:    rule.FieldPath,
 	}
@@ -332,14 +320,10 @@ func reverseMatchTypedRef(srcRef, targetRef ObjectRef, m map[string]interface{},
 		}
 	}
 
-	edgeType := EdgeLocalNameRef
-	if parsed.Namespace != "" || targetRef.Namespace == "" {
-		edgeType = EdgeNameRef
-	}
 	return &Edge{
 		From:     srcRef,
 		To:       targetRef,
-		Type:     edgeType,
+		Type:     EdgeRef,
 		Resolver: resolverName,
 		Field:    rule.FieldPath,
 	}

@@ -54,16 +54,16 @@ func TestArgoCD_ApplicationRefs(t *testing.T) {
 		switch {
 		case e.To == nsRef:
 			foundNS = true
-			if e.Type != EdgeNameRef {
-				t.Errorf("namespace edge: expected EdgeNameRef, got %v", e.Type)
+			if e.Type != EdgeRef {
+				t.Errorf("namespace edge: expected EdgeRef, got %v", e.Type)
 			}
 			if e.Field != "spec.destination.namespace" {
 				t.Errorf("namespace edge: expected field spec.destination.namespace, got %s", e.Field)
 			}
 		case e.To == projRef:
 			foundProj = true
-			if e.Type != EdgeLocalNameRef {
-				t.Errorf("project edge: expected EdgeLocalNameRef, got %v", e.Type)
+			if e.Type != EdgeRef {
+				t.Errorf("project edge: expected EdgeRef, got %v", e.Type)
 			}
 			if e.Field != "spec.project" {
 				t.Errorf("project edge: expected field spec.project, got %s", e.Field)
@@ -126,7 +126,7 @@ func TestArgoCD_ReverseAdd(t *testing.T) {
 	if deps[0].To != nsRef {
 		t.Errorf("expected edge to Namespace, got %+v", deps[0])
 	}
-	if deps[0].Type != EdgeNameRef {
-		t.Errorf("expected EdgeNameRef, got %v", deps[0].Type)
+	if deps[0].Type != EdgeRef {
+		t.Errorf("expected EdgeRef, got %v", deps[0].Type)
 	}
 }

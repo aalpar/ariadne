@@ -237,8 +237,8 @@ func TestRefRule_SameNamespace(t *testing.T) {
 	if edges[0].To.Kind != "ConfigMap" || edges[0].To.Name != "app-config" {
 		t.Fatalf("unexpected target: %v", edges[0].To)
 	}
-	if edges[0].Type != EdgeLocalNameRef {
-		t.Fatalf("expected EdgeLocalNameRef, got %v", edges[0].Type)
+	if edges[0].Type != EdgeRef {
+		t.Fatalf("expected EdgeRef, got %v", edges[0].Type)
 	}
 }
 
@@ -276,8 +276,8 @@ func TestRefRule_ClusterScoped(t *testing.T) {
 	if edges[0].To.Namespace != "" {
 		t.Fatalf("expected cluster-scoped target, got ns=%q", edges[0].To.Namespace)
 	}
-	if edges[0].Type != EdgeNameRef {
-		t.Fatalf("expected EdgeNameRef for cluster-scoped, got %v", edges[0].Type)
+	if edges[0].Type != EdgeRef {
+		t.Fatalf("expected EdgeRef for cluster-scoped, got %v", edges[0].Type)
 	}
 }
 
@@ -327,8 +327,8 @@ func TestRefRule_Reverse(t *testing.T) {
 	if edges[0].To.Kind != "ConfigMap" || edges[0].To.Name != "app-config" {
 		t.Fatalf("expected edge to ConfigMap/app-config, got %v", edges[0].To)
 	}
-	if edges[0].Type != EdgeLocalNameRef {
-		t.Fatalf("expected EdgeLocalNameRef, got %v", edges[0].Type)
+	if edges[0].Type != EdgeRef {
+		t.Fatalf("expected EdgeRef, got %v", edges[0].Type)
 	}
 }
 
@@ -418,8 +418,8 @@ func TestRefRule_TypedRef(t *testing.T) {
 	if edges[0].To.Group != "apps" || edges[0].To.Kind != "Deployment" || edges[0].To.Name != "web" {
 		t.Fatalf("unexpected target: %v", edges[0].To)
 	}
-	if edges[0].Type != EdgeLocalNameRef {
-		t.Fatalf("expected EdgeLocalNameRef, got %v", edges[0].Type)
+	if edges[0].Type != EdgeRef {
+		t.Fatalf("expected EdgeRef, got %v", edges[0].Type)
 	}
 }
 
