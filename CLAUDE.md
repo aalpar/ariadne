@@ -39,7 +39,7 @@ Single-package library (`package ariadne`). All source files are at the repo roo
 - **Resolvers are bidirectional** — when object X is added, resolvers emit both "X depends on existing Y" and "existing Z depends on X" edges. This is why resolvers receive a `Lookup` interface.
 - **`Load` vs `Add`**: `Load` inserts all nodes first, then resolves edges, then notifies. `Add` resolves per-object as it goes. Use `Load` for initial sync so resolvers can see the full set.
 - **Listeners fire under the write lock** — expensive listener work must be dispatched to a separate goroutine
-- **`ResolveAll` vs `Graph.Load`**: `Graph.Load` only emits edges between objects that both exist (resolvers check `Lookup.Get`). `ResolveAll` uses a permissive lookup that emits edges even when targets are absent — useful for detecting dangling references. It bypasses the Graph entirely: takes objects + resolvers, returns deduplicated edges.
+- **`ResolveAll` vs `Graph.Load`**: `Graph.Load` uses `Resolve` for bidirectional, existence-filtered edges. `ResolveAll` uses `Extract` for forward-only reference extraction without a Lookup — it produces edges even when targets are absent, which is useful for detecting dangling references.
 
 ### File layout
 
@@ -77,6 +77,15 @@ NewEventResolver()
 ```
 
 Users extend the graph by calling `NewRuleResolver("my-crd", ...rules)` with their own `RefRule`/`LabelSelectorRule` definitions, or by implementing the `Resolver` interface directly.
+
+### 2-phase resolution
+
+Resolvers expose two methods:
+
+- **`Extract(obj)`** — forward-only reference edges from field extraction alone. No Lookup, no existence check. Used by `ResolveAll` / `ariadne lint`.
+- **`Resolve(obj, lookup)`** — bidirectional, existence-filtered edges. Used by `Graph.Add` / `Graph.Load`.
+
+`RefRule.ClusterScoped` tells `Extract` whether the target kind is cluster-scoped (empty namespace) or namespaced (inherits source namespace).
 
 ### Field path syntax
 
