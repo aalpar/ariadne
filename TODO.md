@@ -76,11 +76,11 @@ References in core/built-in K8s types not yet covered by `NewDefault()`.
 
 - [x] **Webhook → Service**: ValidatingWebhookConfiguration/MutatingWebhookConfiguration `webhooks[*].clientConfig.service` — bare name ref with `NamespaceFieldPath` for cross-namespace resolution. Cluster-scoped source. (`structural.go`)
 - [x] **APIService → Service**: `spec.service` — typed-ref with name+namespace. Cluster-scoped source. Aggregated API servers.
-- [ ] **ServiceAccount → Secret**: `spec.secrets[*].name` and `spec.imagePullSecrets[*].name` — bare name refs. Deprecated post-1.24 but still present in many clusters.
-- [ ] **VolumeAttachment → PV**: `spec.source.persistentVolumeName` — bare name ref, cluster-scoped source.
-- [ ] **VolumeAttachment → Node**: `spec.nodeName` — bare name ref, cluster-scoped source.
-- [ ] **PV → CSIDriver**: `spec.csi.driver` — bare name ref matching CSIDriver object name. Both cluster-scoped.
-- [ ] **StorageClass → CSIDriver**: `provisioner` — bare name ref matching CSIDriver object name. Both cluster-scoped.
+- [x] **ServiceAccount → Secret**: `secrets[*].name` and `imagePullSecrets[*].name` — bare name refs. Deprecated post-1.24 but still present in many clusters.
+- [x] **VolumeAttachment → PV**: `spec.source.persistentVolumeName` — bare name ref, cluster-scoped source.
+- [x] **VolumeAttachment → Node**: `spec.nodeName` — bare name ref, cluster-scoped source.
+- [x] **PV → CSIDriver**: `spec.csi.driver` — bare name ref matching CSIDriver object name. Both cluster-scoped.
+- [x] **StorageClass → CSIDriver**: `provisioner` — bare name ref matching CSIDriver object name. Both cluster-scoped.
 
 ### Beyond current primitives
 

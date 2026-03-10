@@ -183,6 +183,44 @@ func NewStructuralResolver() Resolver {
 			FieldPath:          "spec.service.name",
 			NamespaceFieldPath: "spec.service.namespace",
 		},
+		// ServiceAccount -> Secret (legacy token secrets, deprecated post-1.24)
+		RefRule{
+			FromKind: "ServiceAccount", ToKind: "Secret",
+			FieldPath: "secrets[*].name",
+		},
+		// ServiceAccount -> Secret (image pull secrets)
+		RefRule{
+			FromKind: "ServiceAccount", ToKind: "Secret",
+			FieldPath: "imagePullSecrets[*].name",
+		},
+		// VolumeAttachment -> PV
+		RefRule{
+			FromGroup: "storage.k8s.io", FromKind: "VolumeAttachment",
+			ToKind:        "PersistentVolume",
+			FieldPath:     "spec.source.persistentVolumeName",
+			ClusterScoped: true,
+		},
+		// VolumeAttachment -> Node
+		RefRule{
+			FromGroup: "storage.k8s.io", FromKind: "VolumeAttachment",
+			ToKind:        "Node",
+			FieldPath:     "spec.nodeName",
+			ClusterScoped: true,
+		},
+		// PV -> CSIDriver
+		RefRule{
+			FromKind: "PersistentVolume",
+			ToGroup: "storage.k8s.io", ToKind: "CSIDriver",
+			FieldPath:     "spec.csi.driver",
+			ClusterScoped: true,
+		},
+		// StorageClass -> CSIDriver
+		RefRule{
+			FromGroup: "storage.k8s.io", FromKind: "StorageClass",
+			ToGroup: "storage.k8s.io", ToKind: "CSIDriver",
+			FieldPath:     "provisioner",
+			ClusterScoped: true,
+		},
 	)
 
 	rules := NewRuleResolver("structural", allRules...)

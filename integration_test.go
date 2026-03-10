@@ -535,6 +535,196 @@ func TestIntegration_APIServiceService(t *testing.T) {
 	}
 }
 
+func TestIntegration_ServiceAccountSecrets(t *testing.T) {
+	g := NewDefault()
+
+	objs := []unstructured.Unstructured{
+		{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "Secret",
+			"metadata": map[string]interface{}{
+				"name": "sa-token-abc", "namespace": "default",
+			},
+		}},
+		{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "Secret",
+			"metadata": map[string]interface{}{
+				"name": "docker-reg", "namespace": "default",
+			},
+		}},
+		{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "ServiceAccount",
+			"metadata": map[string]interface{}{
+				"name": "deploy-sa", "namespace": "default",
+			},
+			"secrets": []interface{}{
+				map[string]interface{}{"name": "sa-token-abc"},
+			},
+			"imagePullSecrets": []interface{}{
+				map[string]interface{}{"name": "docker-reg"},
+			},
+		}},
+	}
+
+	g.Load(objs)
+
+	saRef := ObjectRef{Kind: "ServiceAccount", Namespace: "default", Name: "deploy-sa"}
+	deps := g.DependenciesOf(saRef)
+	if len(deps) != 2 {
+		t.Fatalf("expected 2 SA deps, got %d: %v", len(deps), deps)
+	}
+
+	found := map[string]bool{}
+	for _, e := range deps {
+		found[e.To.Name] = true
+	}
+	if !found["sa-token-abc"] {
+		t.Fatal("expected SA -> Secret (sa-token-abc) edge")
+	}
+	if !found["docker-reg"] {
+		t.Fatal("expected SA -> Secret (docker-reg) edge")
+	}
+}
+
+func TestIntegration_VolumeAttachment(t *testing.T) {
+	g := NewDefault()
+
+	objs := []unstructured.Unstructured{
+		{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "PersistentVolume",
+			"metadata": map[string]interface{}{"name": "pv-0"},
+		}},
+		{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "Node",
+			"metadata": map[string]interface{}{"name": "node-1"},
+		}},
+		{Object: map[string]interface{}{
+			"apiVersion": "storage.k8s.io/v1", "kind": "VolumeAttachment",
+			"metadata": map[string]interface{}{"name": "csi-attach-xyz"},
+			"spec": map[string]interface{}{
+				"nodeName": "node-1",
+				"source": map[string]interface{}{
+					"persistentVolumeName": "pv-0",
+				},
+			},
+		}},
+	}
+
+	g.Load(objs)
+
+	vaRef := ObjectRef{Group: "storage.k8s.io", Kind: "VolumeAttachment", Name: "csi-attach-xyz"}
+	deps := g.DependenciesOf(vaRef)
+	if len(deps) != 2 {
+		t.Fatalf("expected 2 VolumeAttachment deps (PV + Node), got %d: %v", len(deps), deps)
+	}
+
+	found := map[string]bool{}
+	for _, e := range deps {
+		found[e.To.Kind] = true
+	}
+	if !found["PersistentVolume"] {
+		t.Fatal("expected VolumeAttachment -> PV edge")
+	}
+	if !found["Node"] {
+		t.Fatal("expected VolumeAttachment -> Node edge")
+	}
+}
+
+func TestIntegration_CSIDriverRefs(t *testing.T) {
+	g := NewDefault()
+
+	objs := []unstructured.Unstructured{
+		{Object: map[string]interface{}{
+			"apiVersion": "storage.k8s.io/v1", "kind": "CSIDriver",
+			"metadata": map[string]interface{}{"name": "ebs.csi.aws.com"},
+		}},
+		{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "PersistentVolume",
+			"metadata": map[string]interface{}{"name": "pv-ebs"},
+			"spec": map[string]interface{}{
+				"csi": map[string]interface{}{
+					"driver": "ebs.csi.aws.com",
+				},
+			},
+		}},
+		{Object: map[string]interface{}{
+			"apiVersion": "storage.k8s.io/v1", "kind": "StorageClass",
+			"metadata":    map[string]interface{}{"name": "gp3"},
+			"provisioner": "ebs.csi.aws.com",
+		}},
+	}
+
+	g.Load(objs)
+
+	// PV -> CSIDriver
+	pvRef := ObjectRef{Kind: "PersistentVolume", Name: "pv-ebs"}
+	pvDeps := g.DependenciesOf(pvRef)
+	found := false
+	for _, e := range pvDeps {
+		if e.To.Group == "storage.k8s.io" && e.To.Kind == "CSIDriver" && e.To.Name == "ebs.csi.aws.com" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected PV -> CSIDriver edge, got deps: %v", pvDeps)
+	}
+
+	// StorageClass -> CSIDriver
+	scRef := ObjectRef{Group: "storage.k8s.io", Kind: "StorageClass", Name: "gp3"}
+	scDeps := g.DependenciesOf(scRef)
+	found = false
+	for _, e := range scDeps {
+		if e.To.Group == "storage.k8s.io" && e.To.Kind == "CSIDriver" && e.To.Name == "ebs.csi.aws.com" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected StorageClass -> CSIDriver edge, got deps: %v", scDeps)
+	}
+
+	// CSIDriver should have both as dependents.
+	csiRef := ObjectRef{Group: "storage.k8s.io", Kind: "CSIDriver", Name: "ebs.csi.aws.com"}
+	dependents := g.DependentsOf(csiRef)
+	if len(dependents) != 2 {
+		t.Fatalf("expected 2 dependents of CSIDriver, got %d: %v", len(dependents), dependents)
+	}
+}
+
+func TestIntegration_VolumeAttachment_ReverseAdd(t *testing.T) {
+	g := NewDefault()
+
+	// Add VolumeAttachment first, then its targets.
+	va := unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "storage.k8s.io/v1", "kind": "VolumeAttachment",
+		"metadata": map[string]interface{}{"name": "csi-attach-rev"},
+		"spec": map[string]interface{}{
+			"nodeName": "node-2",
+			"source": map[string]interface{}{
+				"persistentVolumeName": "pv-rev",
+			},
+		},
+	}}
+	g.Add(va)
+
+	vaRef := ObjectRef{Group: "storage.k8s.io", Kind: "VolumeAttachment", Name: "csi-attach-rev"}
+	if len(g.DependenciesOf(vaRef)) != 0 {
+		t.Fatal("expected 0 deps before targets are added")
+	}
+
+	g.Add(unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "PersistentVolume",
+		"metadata": map[string]interface{}{"name": "pv-rev"},
+	}})
+	g.Add(unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Node",
+		"metadata": map[string]interface{}{"name": "node-2"},
+	}})
+
+	deps := g.DependenciesOf(vaRef)
+	if len(deps) != 2 {
+		t.Fatalf("expected 2 VolumeAttachment deps after reverse add, got %d: %v", len(deps), deps)
+	}
+}
+
 func TestIntegration_APIServiceService_ReverseAdd(t *testing.T) {
 	g := NewDefault()
 

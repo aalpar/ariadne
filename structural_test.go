@@ -372,6 +372,107 @@ func TestStructuralResolver_Extract_RefRule(t *testing.T) {
 	}
 }
 
+func TestStructuralResolver_StorageAndSARules(t *testing.T) {
+	g := New(WithResolver(NewStructuralResolver()))
+
+	objs := []unstructured.Unstructured{
+		// Targets
+		{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "Secret",
+			"metadata": map[string]interface{}{
+				"name": "sa-token", "namespace": "default",
+			},
+		}},
+		{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "Secret",
+			"metadata": map[string]interface{}{
+				"name": "registry-creds", "namespace": "default",
+			},
+		}},
+		{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "PersistentVolume",
+			"metadata": map[string]interface{}{"name": "pv-data"},
+		}},
+		{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "Node",
+			"metadata": map[string]interface{}{"name": "worker-1"},
+		}},
+		{Object: map[string]interface{}{
+			"apiVersion": "storage.k8s.io/v1", "kind": "CSIDriver",
+			"metadata": map[string]interface{}{"name": "ebs.csi.aws.com"},
+		}},
+		// Sources
+		{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "ServiceAccount",
+			"metadata": map[string]interface{}{
+				"name": "my-sa", "namespace": "default",
+			},
+			"secrets": []interface{}{
+				map[string]interface{}{"name": "sa-token"},
+			},
+			"imagePullSecrets": []interface{}{
+				map[string]interface{}{"name": "registry-creds"},
+			},
+		}},
+		{Object: map[string]interface{}{
+			"apiVersion": "storage.k8s.io/v1", "kind": "VolumeAttachment",
+			"metadata": map[string]interface{}{"name": "va-1"},
+			"spec": map[string]interface{}{
+				"nodeName": "worker-1",
+				"source": map[string]interface{}{
+					"persistentVolumeName": "pv-data",
+				},
+			},
+		}},
+		{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "PersistentVolume",
+			"metadata": map[string]interface{}{"name": "pv-csi"},
+			"spec": map[string]interface{}{
+				"csi": map[string]interface{}{
+					"driver": "ebs.csi.aws.com",
+				},
+			},
+		}},
+		{Object: map[string]interface{}{
+			"apiVersion": "storage.k8s.io/v1", "kind": "StorageClass",
+			"metadata":   map[string]interface{}{"name": "gp3"},
+			"provisioner": "ebs.csi.aws.com",
+		}},
+	}
+
+	g.Load(objs)
+
+	tests := []struct {
+		name   string
+		from   ObjectRef
+		toKind string
+		toName string
+	}{
+		{"SA->Secret (secrets)", ObjectRef{Kind: "ServiceAccount", Namespace: "default", Name: "my-sa"}, "Secret", "sa-token"},
+		{"SA->Secret (imagePullSecrets)", ObjectRef{Kind: "ServiceAccount", Namespace: "default", Name: "my-sa"}, "Secret", "registry-creds"},
+		{"VolumeAttachment->PV", ObjectRef{Group: "storage.k8s.io", Kind: "VolumeAttachment", Name: "va-1"}, "PersistentVolume", "pv-data"},
+		{"VolumeAttachment->Node", ObjectRef{Group: "storage.k8s.io", Kind: "VolumeAttachment", Name: "va-1"}, "Node", "worker-1"},
+		{"PV->CSIDriver", ObjectRef{Kind: "PersistentVolume", Name: "pv-csi"}, "CSIDriver", "ebs.csi.aws.com"},
+		{"StorageClass->CSIDriver", ObjectRef{Group: "storage.k8s.io", Kind: "StorageClass", Name: "gp3"}, "CSIDriver", "ebs.csi.aws.com"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deps := g.DependenciesOf(tt.from)
+			found := false
+			for _, dep := range deps {
+				if dep.To.Kind == tt.toKind && dep.To.Name == tt.toName {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("expected %s -> %s/%s, got deps: %v", tt.from, tt.toKind, tt.toName, deps)
+			}
+		})
+	}
+}
+
 func TestStructuralResolver_Extract_ClusterScopedTarget(t *testing.T) {
 	r := NewStructuralResolver()
 
