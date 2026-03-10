@@ -64,7 +64,18 @@ type ruleResolver struct {
 
 func (r *ruleResolver) Name() string { return r.name }
 
-func (r *ruleResolver) Extract(_ *unstructured.Unstructured) []Edge { return nil }
+func (r *ruleResolver) Extract(obj *unstructured.Unstructured) []Edge {
+	ref := RefFromUnstructured(obj)
+	var edges []Edge
+	for _, rule := range r.rules {
+		switch rule := rule.(type) {
+		case RefRule:
+			edges = append(edges, extractRefForward(ref, obj, rule, r.name)...)
+		// LabelSelectorRule: no extraction without lookup
+		}
+	}
+	return edges
+}
 
 func (r *ruleResolver) Resolve(obj *unstructured.Unstructured, lookup Lookup) []Edge {
 	ref := RefFromUnstructured(obj)
@@ -80,6 +91,96 @@ func (r *ruleResolver) Resolve(obj *unstructured.Unstructured, lookup Lookup) []
 	}
 
 	return edges
+}
+
+// extractRefForward extracts forward reference edges from an object
+// without existence checks. Uses ClusterScoped to determine namespace.
+func extractRefForward(ref ObjectRef, obj *unstructured.Unstructured, rule RefRule, resolverName string) []Edge {
+	if ref.Group != rule.FromGroup || ref.Kind != rule.FromKind {
+		return nil
+	}
+
+	values := extractRawValues(obj.Object, rule.FieldPath)
+	if len(values) == 0 {
+		return nil
+	}
+
+	var namespaces []string
+	if rule.NamespaceFieldPath != "" {
+		namespaces = extractFieldValues(obj.Object, rule.NamespaceFieldPath)
+	}
+
+	var edges []Edge
+	for i, val := range values {
+		switch v := val.(type) {
+		case string:
+			if e, ok := extractBareNameForward(ref, v, i, namespaces, rule, resolverName); ok {
+				edges = append(edges, e)
+			}
+		case map[string]interface{}:
+			if e, ok := extractTypedRefForward(ref, v, rule, resolverName); ok {
+				edges = append(edges, e)
+			}
+		}
+	}
+	return edges
+}
+
+func extractBareNameForward(ref ObjectRef, name string, index int, namespaces []string, rule RefRule, resolverName string) (Edge, bool) {
+	if name == "" {
+		return Edge{}, false
+	}
+
+	var ns string
+	switch {
+	case len(namespaces) > 0:
+		ns = ref.Namespace
+		if index < len(namespaces) {
+			ns = namespaces[index]
+		}
+	case rule.ClusterScoped:
+		ns = ""
+	default:
+		ns = ref.Namespace
+	}
+
+	return Edge{
+		From:     ref,
+		To:       ObjectRef{Group: rule.ToGroup, Kind: rule.ToKind, Namespace: ns, Name: name},
+		Type:     EdgeRef,
+		Resolver: resolverName,
+		Field:    rule.FieldPath,
+	}, true
+}
+
+func extractTypedRefForward(ref ObjectRef, m map[string]interface{}, rule RefRule, resolverName string) (Edge, bool) {
+	toRef, ok := parseTypedRef(m)
+	if !ok {
+		return Edge{}, false
+	}
+
+	if rule.ToGroup != "" && toRef.Group != rule.ToGroup {
+		return Edge{}, false
+	}
+	if rule.ToKind != "" && toRef.Kind != rule.ToKind {
+		return Edge{}, false
+	}
+
+	if toRef.Namespace == "" {
+		if rule.ClusterScoped {
+			// leave empty
+		} else {
+			toRef.Namespace = ref.Namespace
+		}
+	}
+
+	return Edge{
+		From:     ref,
+		To:       toRef,
+		Type:     EdgeRef,
+		Resolver: resolverName,
+		Field:    rule.FieldPath,
+	}, true
 }
 
 func resolveRef(ref ObjectRef, obj *unstructured.Unstructured, rule RefRule, lookup Lookup, resolverName string) []Edge {

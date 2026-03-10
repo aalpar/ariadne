@@ -772,3 +772,175 @@ func (s *stubLookup) ListAll() []*unstructured.Unstructured {
 	}
 	return result
 }
+
+func TestRefRule_Extract_SameNamespace(t *testing.T) {
+	r := NewRuleResolver("test", RefRule{
+		FromKind: "Pod", ToKind: "ConfigMap",
+		FieldPath: "spec.volumes[*].configMap.name",
+	})
+
+	pod := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Pod",
+		"metadata": map[string]interface{}{
+			"name": "web", "namespace": "default",
+		},
+		"spec": map[string]interface{}{
+			"volumes": []interface{}{
+				map[string]interface{}{
+					"configMap": map[string]interface{}{"name": "app-config"},
+				},
+			},
+		},
+	}}
+
+	edges := r.Extract(pod)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d: %v", len(edges), edges)
+	}
+	if edges[0].To.Kind != "ConfigMap" || edges[0].To.Name != "app-config" {
+		t.Fatalf("unexpected target: %v", edges[0].To)
+	}
+	if edges[0].To.Namespace != "default" {
+		t.Fatalf("expected To.Namespace=default, got %q", edges[0].To.Namespace)
+	}
+	if edges[0].Type != EdgeRef {
+		t.Fatalf("expected EdgeRef, got %v", edges[0].Type)
+	}
+}
+
+func TestRefRule_Extract_ClusterScoped(t *testing.T) {
+	r := NewRuleResolver("test", RefRule{
+		FromKind:      "Pod",
+		ToKind:        "Node",
+		FieldPath:     "spec.nodeName",
+		ClusterScoped: true,
+	})
+
+	pod := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Pod",
+		"metadata": map[string]interface{}{
+			"name": "web", "namespace": "default",
+		},
+		"spec": map[string]interface{}{
+			"nodeName": "node-1",
+		},
+	}}
+
+	edges := r.Extract(pod)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d: %v", len(edges), edges)
+	}
+	if edges[0].To.Kind != "Node" || edges[0].To.Name != "node-1" {
+		t.Fatalf("unexpected target: %v", edges[0].To)
+	}
+	if edges[0].To.Namespace != "" {
+		t.Fatalf("expected empty namespace for cluster-scoped target, got %q", edges[0].To.Namespace)
+	}
+}
+
+func TestRefRule_Extract_WithNamespaceField(t *testing.T) {
+	r := NewRuleResolver("test", RefRule{
+		FromGroup: "example.com", FromKind: "MyResource",
+		ToKind:             "Service",
+		FieldPath:          "spec.backendRef.name",
+		NamespaceFieldPath: "spec.backendRef.namespace",
+	})
+
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "example.com/v1", "kind": "MyResource",
+		"metadata": map[string]interface{}{
+			"name": "my-res", "namespace": "staging",
+		},
+		"spec": map[string]interface{}{
+			"backendRef": map[string]interface{}{
+				"name":      "backend",
+				"namespace": "prod",
+			},
+		},
+	}}
+
+	edges := r.Extract(obj)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d: %v", len(edges), edges)
+	}
+	if edges[0].To.Namespace != "prod" {
+		t.Fatalf("expected To.Namespace=prod, got %q", edges[0].To.Namespace)
+	}
+	if edges[0].To.Name != "backend" {
+		t.Fatalf("expected To.Name=backend, got %q", edges[0].To.Name)
+	}
+}
+
+func TestRefRule_Extract_TypedRef(t *testing.T) {
+	r := NewRuleResolver("test", RefRule{
+		FromGroup: "autoscaling", FromKind: "HorizontalPodAutoscaler",
+		FieldPath: "spec.scaleTargetRef",
+	})
+
+	hpa := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "autoscaling/v2", "kind": "HorizontalPodAutoscaler",
+		"metadata": map[string]interface{}{
+			"name": "web-hpa", "namespace": "default",
+		},
+		"spec": map[string]interface{}{
+			"scaleTargetRef": map[string]interface{}{
+				"apiVersion": "apps/v1",
+				"kind":       "Deployment",
+				"name":       "web",
+			},
+		},
+	}}
+
+	edges := r.Extract(hpa)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d: %v", len(edges), edges)
+	}
+	e := edges[0]
+	if e.To.Group != "apps" || e.To.Kind != "Deployment" || e.To.Namespace != "default" || e.To.Name != "web" {
+		t.Fatalf("expected apps/Deployment/default/web, got %v", e.To)
+	}
+}
+
+func TestRefRule_Extract_SkipsNonMatchingKind(t *testing.T) {
+	r := NewRuleResolver("test", RefRule{
+		FromKind: "Pod", ToKind: "ConfigMap",
+		FieldPath: "spec.volumes[*].configMap.name",
+	})
+
+	cm := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "ConfigMap",
+		"metadata": map[string]interface{}{
+			"name": "app-config", "namespace": "default",
+		},
+	}}
+
+	edges := r.Extract(cm)
+	if len(edges) != 0 {
+		t.Fatalf("expected 0 edges for non-matching kind, got %d: %v", len(edges), edges)
+	}
+}
+
+func TestLabelSelectorRule_Extract_ReturnsNil(t *testing.T) {
+	r := NewRuleResolver("test", LabelSelectorRule{
+		FromGroup: "", FromKind: "Service",
+		ToGroup: "", ToKind: "Pod",
+		SelectorFieldPath: "spec.selector",
+	})
+
+	svc := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Service",
+		"metadata": map[string]interface{}{
+			"name": "my-svc", "namespace": "default",
+		},
+		"spec": map[string]interface{}{
+			"selector": map[string]interface{}{
+				"app": "nginx",
+			},
+		},
+	}}
+
+	edges := r.Extract(svc)
+	if len(edges) != 0 {
+		t.Fatalf("expected 0 edges (selector needs Lookup), got %d: %v", len(edges), edges)
+	}
+}
