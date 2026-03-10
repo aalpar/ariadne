@@ -288,10 +288,13 @@ func resolveOwnerRefs(obj *unstructured.Unstructured, lookup Lookup) []Edge {
 	// Reverse: existing objects may have ownerReferences pointing to obj.
 	// Namespaced owners can only own resources in the same namespace.
 	// Cluster-scoped owners (Namespace == "") can own resources in any namespace.
-	for _, existing := range lookup.ListAll() {
-		if ref.Namespace != "" && existing.GetNamespace() != ref.Namespace {
-			continue
-		}
+	var candidates []*unstructured.Unstructured
+	if ref.Namespace != "" {
+		candidates = lookup.ListByNamespace(ref.Namespace)
+	} else {
+		candidates = lookup.ListAll()
+	}
+	for _, existing := range candidates {
 		for _, owner := range existing.GetOwnerReferences() {
 			if extractGroup(owner.APIVersion) == ref.Group &&
 				owner.Kind == ref.Kind &&

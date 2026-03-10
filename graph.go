@@ -25,10 +25,16 @@ type node struct {
 	obj *unstructured.Unstructured
 }
 
+type groupKind struct {
+	Group string
+	Kind  string
+}
+
 // Graph is a directed dependency graph of Kubernetes resources.
 type Graph struct {
 	mu        sync.RWMutex
 	nodes     map[ObjectRef]*node
+	byKind    map[groupKind]map[string][]*node // [gk][namespace] -> nodes
 	outEdges  map[ObjectRef][]Edge
 	inEdges   map[ObjectRef][]Edge
 	resolvers []Resolver
@@ -66,6 +72,7 @@ func NewDefault(opts ...Option) *Graph {
 func New(opts ...Option) *Graph {
 	g := &Graph{
 		nodes:    make(map[ObjectRef]*node),
+		byKind:   make(map[groupKind]map[string][]*node),
 		outEdges: make(map[ObjectRef][]Edge),
 		inEdges:  make(map[ObjectRef][]Edge),
 	}
@@ -78,6 +85,50 @@ func New(opts ...Option) *Graph {
 func (g *Graph) notify(event GraphEvent) {
 	for _, fn := range g.listeners {
 		fn(event)
+	}
+}
+
+// setNode inserts or updates a node. On re-add, the existing node's obj
+// is updated in-place so index pointers remain valid.
+func (g *Graph) setNode(ref ObjectRef, obj *unstructured.Unstructured) {
+	if n, ok := g.nodes[ref]; ok {
+		n.obj = obj
+		return
+	}
+	n := &node{ref: ref, obj: obj}
+	g.nodes[ref] = n
+	gk := groupKind{ref.Group, ref.Kind}
+	nsMap := g.byKind[gk]
+	if nsMap == nil {
+		nsMap = make(map[string][]*node)
+		g.byKind[gk] = nsMap
+	}
+	nsMap[ref.Namespace] = append(nsMap[ref.Namespace], n)
+}
+
+// deleteNode removes a node from the nodes map and the kind index.
+func (g *Graph) deleteNode(ref ObjectRef) {
+	if _, ok := g.nodes[ref]; !ok {
+		return
+	}
+	delete(g.nodes, ref)
+	gk := groupKind{ref.Group, ref.Kind}
+	ns := ref.Namespace
+	nodes := g.byKind[gk][ns]
+	for i, n := range nodes {
+		if n.ref == ref {
+			last := len(nodes) - 1
+			nodes[i] = nodes[last]
+			nodes[last] = nil
+			g.byKind[gk][ns] = nodes[:last]
+			break
+		}
+	}
+	if len(g.byKind[gk][ns]) == 0 {
+		delete(g.byKind[gk], ns)
+	}
+	if len(g.byKind[gk]) == 0 {
+		delete(g.byKind, gk)
 	}
 }
 
@@ -136,7 +187,7 @@ func (g *Graph) Add(objs ...unstructured.Unstructured) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	lookup := &graphLookup{nodes: g.nodes}
+	lookup := &graphLookup{nodes: g.nodes, byKind: g.byKind}
 
 	for i := range objs {
 		objCopy := objs[i]
@@ -147,13 +198,13 @@ func (g *Graph) Add(objs ...unstructured.Unstructured) {
 			g.removeAllEdges(ref)
 		}
 
-		g.nodes[ref] = &node{ref: ref, obj: &objCopy}
+		g.setNode(ref, &objCopy)
 		if !exists {
 			g.notify(GraphEvent{Type: NodeAdded, Ref: &ref})
 		}
 
 		for _, r := range g.resolvers {
-			for _, e := range r.Resolve(&objCopy, lookup) {
+			for _, e := range r.Resolve(g.nodes[ref].obj, lookup) {
 				g.addEdge(e)
 			}
 		}
@@ -170,7 +221,7 @@ func (g *Graph) Remove(refs ...ObjectRef) {
 			continue
 		}
 		g.removeAllEdges(ref)
-		delete(g.nodes, ref)
+		g.deleteNode(ref)
 		g.notify(GraphEvent{Type: NodeRemoved, Ref: &ref})
 	}
 }
@@ -298,10 +349,10 @@ func (g *Graph) Load(objs []unstructured.Unstructured) {
 		objCopy := objs[i]
 		ref := RefFromUnstructured(&objCopy)
 		refs[i] = ref
-		g.nodes[ref] = &node{ref: ref, obj: &objCopy}
+		g.setNode(ref, &objCopy)
 	}
 
-	lookup := &graphLookup{nodes: g.nodes}
+	lookup := &graphLookup{nodes: g.nodes, byKind: g.byKind}
 	var events []GraphEvent
 
 	for i := range refs {
@@ -327,9 +378,10 @@ func (g *Graph) Load(objs []unstructured.Unstructured) {
 	}
 }
 
-// graphLookup implements Lookup backed by the graph's node map.
+// graphLookup implements Lookup backed by the graph's node map and kind index.
 type graphLookup struct {
-	nodes map[ObjectRef]*node
+	nodes  map[ObjectRef]*node
+	byKind map[groupKind]map[string][]*node
 }
 
 func (l *graphLookup) Get(ref ObjectRef) (*unstructured.Unstructured, bool) {
@@ -341,9 +393,13 @@ func (l *graphLookup) Get(ref ObjectRef) (*unstructured.Unstructured, bool) {
 }
 
 func (l *graphLookup) List(group, kind string) []*unstructured.Unstructured {
+	nsMap := l.byKind[groupKind{group, kind}]
+	if len(nsMap) == 0 {
+		return nil
+	}
 	var result []*unstructured.Unstructured
-	for ref, n := range l.nodes {
-		if ref.Group == group && ref.Kind == kind {
+	for _, nodes := range nsMap {
+		for _, n := range nodes {
 			result = append(result, n.obj)
 		}
 	}
@@ -351,9 +407,21 @@ func (l *graphLookup) List(group, kind string) []*unstructured.Unstructured {
 }
 
 func (l *graphLookup) ListInNamespace(group, kind, namespace string) []*unstructured.Unstructured {
+	nodes := l.byKind[groupKind{group, kind}][namespace]
+	if len(nodes) == 0 {
+		return nil
+	}
+	result := make([]*unstructured.Unstructured, len(nodes))
+	for i, n := range nodes {
+		result[i] = n.obj
+	}
+	return result
+}
+
+func (l *graphLookup) ListByNamespace(namespace string) []*unstructured.Unstructured {
 	var result []*unstructured.Unstructured
-	for ref, n := range l.nodes {
-		if ref.Group == group && ref.Kind == kind && ref.Namespace == namespace {
+	for _, nsMap := range l.byKind {
+		for _, n := range nsMap[namespace] {
 			result = append(result, n.obj)
 		}
 	}
