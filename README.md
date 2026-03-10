@@ -148,10 +148,16 @@ Direct field references between known K8s resource types:
 | PV | PersistentVolumeClaim | `spec.claimRef` (typed-ref) |
 | HPA | *scaleTargetRef kind* | `spec.scaleTargetRef` (typed-ref) |
 | RoleBinding | Role/ClusterRole | `roleRef` (typed-ref) |
-| RoleBinding | *subject kinds* | `subjects[*]` (typed-ref) |
+| RoleBinding | ServiceAccount | `subjects[*]` (typed-ref) |
 | ClusterRoleBinding | ClusterRole | `roleRef` (typed-ref) |
-| ClusterRoleBinding | *subject kinds* | `subjects[*]` (typed-ref) |
+| ClusterRoleBinding | ServiceAccount | `subjects[*]` (typed-ref) |
 | *any* | *owner* | `metadata.ownerReferences` |
+
+All Pod rules are mirrored for `PodTemplate` (with field paths prefixed by
+`template.`). Use `WithPodTemplates()` to automatically extract synthetic
+PodTemplates from Deployments, StatefulSets, DaemonSets, ReplicaSets, Jobs,
+and CronJobs — this lets the resolver trace dependencies through embedded pod
+specs without requiring standalone Pod objects.
 
 ### Selector
 
@@ -335,11 +341,17 @@ ariadne graph manifests/ | dot -Tpng -o graph.png
 # JSON output
 ariadne graph -format json manifests/
 
+# Extract PodTemplates from workloads for finer-grained edges
+ariadne graph -pod-templates manifests/
+
 # Pipe from template tools
 helm template my-chart | ariadne graph
 ```
 
 Output formats: `dot` (default), `json`.
+
+Flags: `-format` (output format), `-pod-templates` (extract synthetic
+PodTemplates from Deployments, StatefulSets, etc.).
 
 Exit codes: 0 = success, 2 = usage error.
 
