@@ -24,7 +24,7 @@ import (
 
 func main() {
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: ariadne <command> [args...]\n\nCommands:\n  lint    Check for dangling resource references\n")
+		fmt.Fprintf(os.Stderr, "Usage: ariadne <command> [args...]\n\nCommands:\n  graph   Output dependency graph (DOT or JSON)\n  lint    Check for dangling resource references\n")
 	}
 	flag.Parse()
 
@@ -35,6 +35,8 @@ func main() {
 	}
 
 	switch args[0] {
+	case "graph":
+		os.Exit(runGraph(args[1:]))
 	case "lint":
 		os.Exit(runLint(args[1:]))
 	default:
@@ -42,6 +44,40 @@ func main() {
 		flag.Usage()
 		os.Exit(2)
 	}
+}
+
+func runGraph(args []string) int {
+	fs := flag.NewFlagSet("graph", flag.ExitOnError)
+	format := fs.String("format", "dot", "Output format: dot, json")
+	fs.Parse(args)
+
+	var objs []unstructured.Unstructured
+	var allErrs []error
+
+	if fs.NArg() == 0 {
+		o, errs := decodeYAML(os.Stdin)
+		objs = append(objs, o...)
+		allErrs = append(allErrs, errs...)
+	} else {
+		o, errs := readSources(fs.Args())
+		objs = append(objs, o...)
+		allErrs = append(allErrs, errs...)
+	}
+
+	for _, err := range allErrs {
+		fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+	}
+
+	if len(objs) == 0 {
+		fmt.Fprintln(os.Stderr, "no valid Kubernetes objects found")
+		return 2
+	}
+
+	if err := graph(objs, *format, os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 2
+	}
+	return 0
 }
 
 func runLint(args []string) int {

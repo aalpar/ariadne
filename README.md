@@ -316,11 +316,37 @@ g.ExportDOT(w)   // Graphviz DOT format
 g.ExportJSON(w)   // JSON with nodes and edges arrays
 ```
 
-## CLI: `ariadne lint`
+## CLI
 
-The library ships with a built-in linter that reads Kubernetes YAML manifests
-and reports dangling references — resources that are referenced but not present
-in the input set.
+Install:
+
+```
+go install github.com/aalpar/ariadne/cmd/ariadne@latest
+```
+
+### `ariadne graph`
+
+Reads Kubernetes YAML manifests and outputs the full dependency graph.
+
+```bash
+# DOT output (default) — pipe to Graphviz
+ariadne graph manifests/ | dot -Tpng -o graph.png
+
+# JSON output
+ariadne graph -format json manifests/
+
+# Pipe from template tools
+helm template my-chart | ariadne graph
+```
+
+Output formats: `dot` (default), `json`.
+
+Exit codes: 0 = success, 2 = usage error.
+
+### `ariadne lint`
+
+Reads Kubernetes YAML manifests and reports dangling references — resources
+that are referenced but not present in the input set.
 
 ```bash
 # Pipe from kustomize, helm, or other template tools
@@ -345,12 +371,6 @@ Exit codes: 0 = clean, 1 = dangling references found, 2 = usage error.
 The linter uses `ResolveAll` with all built-in and ecosystem resolvers. It
 filters out `ownerReferences` (set by controllers at runtime, not by manifest
 authors) and event edges.
-
-Install:
-
-```
-go install github.com/aalpar/ariadne/cmd/ariadne@latest
-```
 
 ## Concurrency
 
