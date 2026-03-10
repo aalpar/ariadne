@@ -197,9 +197,10 @@ func NewStructuralResolver() Resolver {
 			ToGroup:   "rbac.authorization.k8s.io",
 			FieldPath: "roleRef",
 		},
-		// RoleBinding -> subjects (ServiceAccount, etc.)
+		// RoleBinding -> subjects (ServiceAccount only — User/Group are not API objects)
 		RefRule{
 			FromGroup: "rbac.authorization.k8s.io", FromKind: "RoleBinding",
+			ToKind:    "ServiceAccount",
 			FieldPath: "subjects[*]",
 		},
 		// ClusterRoleBinding -> roleRef
@@ -208,9 +209,10 @@ func NewStructuralResolver() Resolver {
 			ToGroup:   "rbac.authorization.k8s.io",
 			FieldPath: "roleRef",
 		},
-		// ClusterRoleBinding -> subjects (ServiceAccount, etc.)
+		// ClusterRoleBinding -> subjects (ServiceAccount only — User/Group are not API objects)
 		RefRule{
 			FromGroup: "rbac.authorization.k8s.io", FromKind: "ClusterRoleBinding",
+			ToKind:    "ServiceAccount",
 			FieldPath: "subjects[*]",
 		},
 		// PV -> PVC (claimRef with explicit namespace)

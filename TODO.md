@@ -35,9 +35,15 @@ Added `map[groupKind]map[namespace][]*node` index to `graphLookup`. `List` and `
 | AddAll/n=10000 | 6.4s | 815ms | **7.8x** |
 | AddSingle/graph=10000 | 1.16ms | 174µs | **6.6x** |
 
-### Remaining bottleneck
+### Subjects constraint (done)
 
-- [ ] **Unconstrained subjects reverse resolution** — subjects rules have `ToKind/ToGroup` empty, so the type guard in `resolveRefReverse` is skipped for every added object. Each Add calls `List("rbac.authorization.k8s.io", "RoleBinding")` which is now O(RoleBindings) instead of O(N), but still runs for all 10K objects. At 10K objects × 500 RoleBindings = 5M iterations. Options: constrain ToKind to known subject kinds (ServiceAccount), or move subjects to custom resolver logic.
+Constrained subjects rules to `ToKind: "ServiceAccount"` — User/Group are not API objects. The type guard in `resolveRefReverse` now skips ~95% of objects immediately.
+
+| Benchmark | Before | After | Speedup |
+|---|---|---|---|
+| Load/n=10000 | 1.73s | 0.93s | **1.9x** |
+| AddAll/n=10000 | 796ms | 401ms | **2.0x** |
+| AddSingle/graph=10000 | 170µs | 85µs | **2.0x** |
 
 ## CRD-level typed references
 
