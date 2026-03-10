@@ -35,6 +35,8 @@ type kyvernoResolver struct{}
 
 func (r *kyvernoResolver) Name() string { return "kyverno" }
 
+func (r *kyvernoResolver) Extract(_ *unstructured.Unstructured) []Edge { return nil }
+
 func (r *kyvernoResolver) Resolve(obj *unstructured.Unstructured, lookup Lookup) []Edge {
 	ref := RefFromUnstructured(obj)
 	gvk := obj.GroupVersionKind()

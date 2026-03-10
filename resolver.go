@@ -21,6 +21,7 @@ import "k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 // and "existing Y depends on obj".
 type Resolver interface {
 	Name() string
+	Extract(obj *unstructured.Unstructured) []Edge
 	Resolve(obj *unstructured.Unstructured, lookup Lookup) []Edge
 }
 

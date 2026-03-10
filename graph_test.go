@@ -94,6 +94,8 @@ type stubResolver struct{}
 
 func (s *stubResolver) Name() string { return "stub" }
 
+func (s *stubResolver) Extract(_ *unstructured.Unstructured) []Edge { return nil }
+
 func (s *stubResolver) Resolve(obj *unstructured.Unstructured, lookup Lookup) []Edge {
 	ref := RefFromUnstructured(obj)
 	var edges []Edge
@@ -356,6 +358,8 @@ func TestAddReAddNotifications(t *testing.T) {
 type chainResolver struct{}
 
 func (c *chainResolver) Name() string { return "chain" }
+
+func (c *chainResolver) Extract(_ *unstructured.Unstructured) []Edge { return nil }
 
 func (c *chainResolver) Resolve(obj *unstructured.Unstructured, lookup Lookup) []Edge {
 	ref := RefFromUnstructured(obj)

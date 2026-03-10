@@ -230,6 +230,8 @@ type structuralResolver struct {
 
 func (s *structuralResolver) Name() string { return "structural" }
 
+func (s *structuralResolver) Extract(_ *unstructured.Unstructured) []Edge { return nil }
+
 func (s *structuralResolver) Resolve(obj *unstructured.Unstructured, lookup Lookup) []Edge {
 	edges := s.rules.Resolve(obj, lookup)
 	edges = append(edges, resolveOwnerRefs(obj, lookup)...)

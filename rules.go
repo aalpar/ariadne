@@ -64,6 +64,8 @@ type ruleResolver struct {
 
 func (r *ruleResolver) Name() string { return r.name }
 
+func (r *ruleResolver) Extract(_ *unstructured.Unstructured) []Edge { return nil }
+
 func (r *ruleResolver) Resolve(obj *unstructured.Unstructured, lookup Lookup) []Edge {
 	ref := RefFromUnstructured(obj)
 	var edges []Edge

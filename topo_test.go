@@ -25,6 +25,8 @@ type cycleResolver struct{}
 
 func (c *cycleResolver) Name() string { return "cycle" }
 
+func (c *cycleResolver) Extract(_ *unstructured.Unstructured) []Edge { return nil }
+
 func (c *cycleResolver) Resolve(obj *unstructured.Unstructured, lookup Lookup) []Edge {
 	ref := RefFromUnstructured(obj)
 	var edges []Edge

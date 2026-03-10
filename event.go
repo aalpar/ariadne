@@ -26,6 +26,8 @@ type eventResolver struct{}
 
 func (e *eventResolver) Name() string { return "event" }
 
+func (e *eventResolver) Extract(_ *unstructured.Unstructured) []Edge { return nil }
+
 func (e *eventResolver) Resolve(obj *unstructured.Unstructured, lookup Lookup) []Edge {
 	ref := RefFromUnstructured(obj)
 	if ref.Kind == "Event" {
