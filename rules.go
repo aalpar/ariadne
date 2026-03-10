@@ -70,18 +70,18 @@ func (r *ruleResolver) Resolve(obj *unstructured.Unstructured, lookup Lookup) []
 	for _, rule := range r.rules {
 		switch rule := rule.(type) {
 		case RefRule:
-			edges = append(edges, resolveRef(ref, obj, rule, lookup)...)
+			edges = append(edges, resolveRef(ref, obj, rule, lookup, r.name)...)
 		case LabelSelectorRule:
-			edges = append(edges, resolveLabelSelector(ref, obj, rule, lookup)...)
+			edges = append(edges, resolveLabelSelector(ref, obj, rule, lookup, r.name)...)
 		}
 	}
 
 	return edges
 }
 
-func resolveRef(ref ObjectRef, obj *unstructured.Unstructured, rule RefRule, lookup Lookup) []Edge {
+func resolveRef(ref ObjectRef, obj *unstructured.Unstructured, rule RefRule, lookup Lookup, resolverName string) []Edge {
 	if ref.Group != rule.FromGroup || ref.Kind != rule.FromKind {
-		return resolveRefReverse(ref, obj, rule, lookup)
+		return resolveRefReverse(ref, obj, rule, lookup, resolverName)
 	}
 
 	values := extractRawValues(obj.Object, rule.FieldPath)
@@ -98,16 +98,16 @@ func resolveRef(ref ObjectRef, obj *unstructured.Unstructured, rule RefRule, loo
 	for i, val := range values {
 		switch v := val.(type) {
 		case string:
-			edges = append(edges, resolveBareName(ref, v, i, namespaces, rule, lookup)...)
+			edges = append(edges, resolveBareName(ref, v, i, namespaces, rule, lookup, resolverName)...)
 		case map[string]interface{}:
-			edges = append(edges, resolveTypedRef(ref, v, rule, lookup)...)
+			edges = append(edges, resolveTypedRef(ref, v, rule, lookup, resolverName)...)
 		}
 	}
 	return edges
 }
 
 // resolveBareName handles a bare string name value.
-func resolveBareName(ref ObjectRef, name string, index int, namespaces []string, rule RefRule, lookup Lookup) []Edge {
+func resolveBareName(ref ObjectRef, name string, index int, namespaces []string, rule RefRule, lookup Lookup, resolverName string) []Edge {
 	if len(namespaces) > 0 {
 		ns := ref.Namespace
 		if index < len(namespaces) {
@@ -124,7 +124,7 @@ func resolveBareName(ref ObjectRef, name string, index int, namespaces []string,
 				From:     ref,
 				To:       toRef,
 				Type:     EdgeNameRef,
-				Resolver: "rule",
+				Resolver: resolverName,
 				Field:    rule.FieldPath,
 			}}
 		}
@@ -147,7 +147,7 @@ func resolveBareName(ref ObjectRef, name string, index int, namespaces []string,
 			From:     ref,
 			To:       sameNS,
 			Type:     edgeType,
-			Resolver: "rule",
+			Resolver: resolverName,
 			Field:    rule.FieldPath,
 		}}
 	}
@@ -161,7 +161,7 @@ func resolveBareName(ref ObjectRef, name string, index int, namespaces []string,
 			From:     ref,
 			To:       clusterScoped,
 			Type:     EdgeNameRef,
-			Resolver: "rule",
+			Resolver: resolverName,
 			Field:    rule.FieldPath,
 		}}
 	}
@@ -169,7 +169,7 @@ func resolveBareName(ref ObjectRef, name string, index int, namespaces []string,
 }
 
 // resolveTypedRef handles a typed reference map (kind/name/apiGroup).
-func resolveTypedRef(ref ObjectRef, m map[string]interface{}, rule RefRule, lookup Lookup) []Edge {
+func resolveTypedRef(ref ObjectRef, m map[string]interface{}, rule RefRule, lookup Lookup, resolverName string) []Edge {
 	toRef, ok := parseTypedRef(m)
 	if !ok {
 		return nil
@@ -190,7 +190,7 @@ func resolveTypedRef(ref ObjectRef, m map[string]interface{}, rule RefRule, look
 				From:     ref,
 				To:       toRef,
 				Type:     EdgeNameRef,
-				Resolver: "rule",
+				Resolver: resolverName,
 				Field:    rule.FieldPath,
 			}}
 		}
@@ -209,7 +209,7 @@ func resolveTypedRef(ref ObjectRef, m map[string]interface{}, rule RefRule, look
 			From:     ref,
 			To:       sameNS,
 			Type:     edgeType,
-			Resolver: "rule",
+			Resolver: resolverName,
 			Field:    rule.FieldPath,
 		}}
 	}
@@ -218,14 +218,14 @@ func resolveTypedRef(ref ObjectRef, m map[string]interface{}, rule RefRule, look
 			From:     ref,
 			To:       toRef,
 			Type:     EdgeNameRef,
-			Resolver: "rule",
+			Resolver: resolverName,
 			Field:    rule.FieldPath,
 		}}
 	}
 	return nil
 }
 
-func resolveRefReverse(ref ObjectRef, obj *unstructured.Unstructured, rule RefRule, lookup Lookup) []Edge {
+func resolveRefReverse(ref ObjectRef, obj *unstructured.Unstructured, rule RefRule, lookup Lookup, resolverName string) []Edge {
 	// Type constraint guard: skip if the added object can't be a target.
 	if rule.ToKind != "" && (ref.Group != rule.ToGroup || ref.Kind != rule.ToKind) {
 		return nil
@@ -250,12 +250,12 @@ func resolveRefReverse(ref ObjectRef, obj *unstructured.Unstructured, rule RefRu
 		for i, val := range values {
 			switch v := val.(type) {
 			case string:
-				edge := reverseMatchBareName(srcRef, ref, v, i, src, rule)
+				edge := reverseMatchBareName(srcRef, ref, v, i, src, rule, resolverName)
 				if edge != nil {
 					edges = append(edges, *edge)
 				}
 			case map[string]interface{}:
-				edge := reverseMatchTypedRef(srcRef, ref, v, rule)
+				edge := reverseMatchTypedRef(srcRef, ref, v, rule, resolverName)
 				if edge != nil {
 					edges = append(edges, *edge)
 				}
@@ -265,7 +265,7 @@ func resolveRefReverse(ref ObjectRef, obj *unstructured.Unstructured, rule RefRu
 	return edges
 }
 
-func reverseMatchBareName(srcRef, targetRef ObjectRef, name string, index int, src *unstructured.Unstructured, rule RefRule) *Edge {
+func reverseMatchBareName(srcRef, targetRef ObjectRef, name string, index int, src *unstructured.Unstructured, rule RefRule, resolverName string) *Edge {
 	if name != targetRef.Name {
 		return nil
 	}
@@ -283,7 +283,7 @@ func reverseMatchBareName(srcRef, targetRef ObjectRef, name string, index int, s
 			From:     srcRef,
 			To:       targetRef,
 			Type:     EdgeNameRef,
-			Resolver: "rule",
+			Resolver: resolverName,
 			Field:    rule.FieldPath,
 		}
 	}
@@ -296,12 +296,12 @@ func reverseMatchBareName(srcRef, targetRef ObjectRef, name string, index int, s
 		From:     srcRef,
 		To:       targetRef,
 		Type:     edgeType,
-		Resolver: "rule",
+		Resolver: resolverName,
 		Field:    rule.FieldPath,
 	}
 }
 
-func reverseMatchTypedRef(srcRef, targetRef ObjectRef, m map[string]interface{}, rule RefRule) *Edge {
+func reverseMatchTypedRef(srcRef, targetRef ObjectRef, m map[string]interface{}, rule RefRule, resolverName string) *Edge {
 	parsed, ok := parseTypedRef(m)
 	if !ok {
 		return nil
@@ -340,7 +340,7 @@ func reverseMatchTypedRef(srcRef, targetRef ObjectRef, m map[string]interface{},
 		From:     srcRef,
 		To:       targetRef,
 		Type:     edgeType,
-		Resolver: "rule",
+		Resolver: resolverName,
 		Field:    rule.FieldPath,
 	}
 }
@@ -376,9 +376,9 @@ func parseTypedRef(m map[string]interface{}) (ObjectRef, bool) {
 	return ref, true
 }
 
-func resolveLabelSelector(ref ObjectRef, obj *unstructured.Unstructured, rule LabelSelectorRule, lookup Lookup) []Edge {
+func resolveLabelSelector(ref ObjectRef, obj *unstructured.Unstructured, rule LabelSelectorRule, lookup Lookup, resolverName string) []Edge {
 	if ref.Group != rule.FromGroup || ref.Kind != rule.FromKind {
-		return resolveLabelSelectorReverse(ref, obj, rule, lookup)
+		return resolveLabelSelectorReverse(ref, obj, rule, lookup, resolverName)
 	}
 
 	sel := extractSelector(obj.Object, rule.SelectorFieldPath)
@@ -406,7 +406,7 @@ func resolveLabelSelector(ref ObjectRef, obj *unstructured.Unstructured, rule La
 				From:     ref,
 				To:       RefFromUnstructured(target),
 				Type:     EdgeLabelSelector,
-				Resolver: "rule",
+				Resolver: resolverName,
 				Field:    rule.SelectorFieldPath,
 			})
 		}
@@ -414,7 +414,7 @@ func resolveLabelSelector(ref ObjectRef, obj *unstructured.Unstructured, rule La
 	return edges
 }
 
-func resolveLabelSelectorReverse(ref ObjectRef, obj *unstructured.Unstructured, rule LabelSelectorRule, lookup Lookup) []Edge {
+func resolveLabelSelectorReverse(ref ObjectRef, obj *unstructured.Unstructured, rule LabelSelectorRule, lookup Lookup, resolverName string) []Edge {
 	if ref.Group != rule.ToGroup || ref.Kind != rule.ToKind {
 		return nil
 	}
@@ -442,7 +442,7 @@ func resolveLabelSelectorReverse(ref ObjectRef, obj *unstructured.Unstructured, 
 				From:     RefFromUnstructured(src),
 				To:       ref,
 				Type:     EdgeLabelSelector,
-				Resolver: "rule",
+				Resolver: resolverName,
 				Field:    rule.SelectorFieldPath,
 			})
 		}

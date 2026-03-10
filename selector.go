@@ -14,11 +14,9 @@
 
 package ariadne
 
-import "k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-
 // NewSelectorResolver returns a resolver for label/selector-based dependencies.
 func NewSelectorResolver() Resolver {
-	r := NewRuleResolver("selector",
+	return NewRuleResolver("selector",
 		LabelSelectorRule{
 			FromKind: "Service", ToKind: "Pod",
 			SelectorFieldPath: "spec.selector",
@@ -34,20 +32,4 @@ func NewSelectorResolver() Resolver {
 			SelectorFieldPath: "spec.selector",
 		},
 	)
-	return &namedResolver{name: "selector", inner: r}
-}
-
-type namedResolver struct {
-	name  string
-	inner Resolver
-}
-
-func (n *namedResolver) Name() string { return n.name }
-
-func (n *namedResolver) Resolve(obj *unstructured.Unstructured, lookup Lookup) []Edge {
-	edges := n.inner.Resolve(obj, lookup)
-	for i := range edges {
-		edges[i].Resolver = n.name
-	}
-	return edges
 }

@@ -225,9 +225,6 @@ func (s *structuralResolver) Name() string { return "structural" }
 
 func (s *structuralResolver) Resolve(obj *unstructured.Unstructured, lookup Lookup) []Edge {
 	edges := s.rules.Resolve(obj, lookup)
-	for i := range edges {
-		edges[i].Resolver = "structural"
-	}
 	edges = append(edges, resolveOwnerRefs(obj, lookup)...)
 	return edges
 }

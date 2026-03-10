@@ -60,11 +60,7 @@ func (r *crossplaneResolver) Resolve(obj *unstructured.Unstructured, lookup Look
 
 	// providerConfigRef via declarative rules
 	if r.ruleResolver != nil {
-		ruleEdges := r.ruleResolver.Resolve(obj, lookup)
-		for i := range ruleEdges {
-			ruleEdges[i].Resolver = "crossplane"
-		}
-		edges = append(edges, ruleEdges...)
+		edges = append(edges, r.ruleResolver.Resolve(obj, lookup)...)
 	}
 
 	// compositeTypeRef via custom logic
