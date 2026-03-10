@@ -74,7 +74,7 @@ References in core/built-in K8s types not yet covered by `NewDefault()`.
 
 ### Fits existing primitives
 
-- [ ] **Webhook → Service**: ValidatingWebhookConfiguration/MutatingWebhookConfiguration `webhooks[*].clientConfig.service` — typed-ref with name+namespace (cross-namespace). Cluster-scoped source. Hits every cluster with admission webhooks.
+- [x] **Webhook → Service**: ValidatingWebhookConfiguration/MutatingWebhookConfiguration `webhooks[*].clientConfig.service` — bare name ref with `NamespaceFieldPath` for cross-namespace resolution. Cluster-scoped source. (`structural.go`)
 - [ ] **APIService → Service**: `spec.service` — typed-ref with name+namespace. Cluster-scoped source. Aggregated API servers.
 - [ ] **ServiceAccount → Secret**: `spec.secrets[*].name` and `spec.imagePullSecrets[*].name` — bare name refs. Deprecated post-1.24 but still present in many clusters.
 - [ ] **VolumeAttachment → PV**: `spec.source.persistentVolumeName` — bare name ref, cluster-scoped source.

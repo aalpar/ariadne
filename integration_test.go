@@ -393,3 +393,100 @@ func TestIntegration_PVClaimRef(t *testing.T) {
 		t.Fatalf("expected 1 dependent of PVC, got %d: %v", len(dependents), dependents)
 	}
 }
+
+func TestIntegration_WebhookService(t *testing.T) {
+	g := NewDefault()
+
+	objs := []unstructured.Unstructured{
+		// Service in "webhook-system" namespace
+		{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "Service",
+			"metadata": map[string]interface{}{
+				"name": "webhook-svc", "namespace": "webhook-system",
+			},
+		}},
+		// ValidatingWebhookConfiguration (cluster-scoped) -> Service
+		{Object: map[string]interface{}{
+			"apiVersion": "admissionregistration.k8s.io/v1", "kind": "ValidatingWebhookConfiguration",
+			"metadata": map[string]interface{}{
+				"name": "validate-pods",
+			},
+			"webhooks": []interface{}{
+				map[string]interface{}{
+					"name": "validate-pods.example.com",
+					"clientConfig": map[string]interface{}{
+						"service": map[string]interface{}{
+							"name":      "webhook-svc",
+							"namespace": "webhook-system",
+							"port":      int64(443),
+						},
+					},
+				},
+			},
+		}},
+	}
+
+	g.Load(objs)
+
+	vwcRef := ObjectRef{Group: "admissionregistration.k8s.io", Kind: "ValidatingWebhookConfiguration", Name: "validate-pods"}
+	deps := g.DependenciesOf(vwcRef)
+	if len(deps) != 1 {
+		t.Fatalf("expected 1 ValidatingWebhookConfiguration dep, got %d: %v", len(deps), deps)
+	}
+	svcRef := ObjectRef{Kind: "Service", Namespace: "webhook-system", Name: "webhook-svc"}
+	if deps[0].To != svcRef {
+		t.Fatalf("expected VWC -> Service, got %v", deps[0].To)
+	}
+
+	// Service should have the webhook config as a dependent.
+	dependents := g.DependentsOf(svcRef)
+	if len(dependents) != 1 {
+		t.Fatalf("expected 1 dependent of Service, got %d: %v", len(dependents), dependents)
+	}
+}
+
+func TestIntegration_MutatingWebhookService_ReverseAdd(t *testing.T) {
+	g := NewDefault()
+
+	// Add MutatingWebhookConfiguration first, then the Service.
+	mwc := unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "admissionregistration.k8s.io/v1", "kind": "MutatingWebhookConfiguration",
+		"metadata": map[string]interface{}{
+			"name": "inject-sidecar",
+		},
+		"webhooks": []interface{}{
+			map[string]interface{}{
+				"name": "inject.example.com",
+				"clientConfig": map[string]interface{}{
+					"service": map[string]interface{}{
+						"name":      "injector-svc",
+						"namespace": "istio-system",
+					},
+				},
+			},
+		},
+	}}
+	g.Add(mwc)
+
+	mwcRef := ObjectRef{Group: "admissionregistration.k8s.io", Kind: "MutatingWebhookConfiguration", Name: "inject-sidecar"}
+	if len(g.DependenciesOf(mwcRef)) != 0 {
+		t.Fatal("expected 0 deps before Service is added")
+	}
+
+	svc := unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Service",
+		"metadata": map[string]interface{}{
+			"name": "injector-svc", "namespace": "istio-system",
+		},
+	}}
+	g.Add(svc)
+
+	deps := g.DependenciesOf(mwcRef)
+	if len(deps) != 1 {
+		t.Fatalf("expected 1 MWC dep after reverse add, got %d: %v", len(deps), deps)
+	}
+	svcRef := ObjectRef{Kind: "Service", Namespace: "istio-system", Name: "injector-svc"}
+	if deps[0].To != svcRef {
+		t.Fatalf("expected MWC -> Service, got %v", deps[0].To)
+	}
+}

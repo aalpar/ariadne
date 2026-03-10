@@ -162,6 +162,20 @@ func NewStructuralResolver() Resolver {
 			ToKind:    "PersistentVolumeClaim",
 			FieldPath: "spec.claimRef",
 		},
+		// ValidatingWebhookConfiguration -> Service (cross-namespace)
+		RefRule{
+			FromGroup: "admissionregistration.k8s.io", FromKind: "ValidatingWebhookConfiguration",
+			ToKind:             "Service",
+			FieldPath:          "webhooks[*].clientConfig.service.name",
+			NamespaceFieldPath: "webhooks[*].clientConfig.service.namespace",
+		},
+		// MutatingWebhookConfiguration -> Service (cross-namespace)
+		RefRule{
+			FromGroup: "admissionregistration.k8s.io", FromKind: "MutatingWebhookConfiguration",
+			ToKind:             "Service",
+			FieldPath:          "webhooks[*].clientConfig.service.name",
+			NamespaceFieldPath: "webhooks[*].clientConfig.service.namespace",
+		},
 	)
 
 	rules := NewRuleResolver("structural", allRules...)
