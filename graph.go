@@ -32,13 +32,14 @@ type groupKind struct {
 
 // Graph is a directed dependency graph of Kubernetes resources.
 type Graph struct {
-	mu        sync.RWMutex
-	nodes     map[ObjectRef]*node
-	byKind    map[groupKind]map[string][]*node // [gk][namespace] -> nodes
-	outEdges  map[ObjectRef][]Edge
-	inEdges   map[ObjectRef][]Edge
-	resolvers []Resolver
-	listeners []ChangeListener
+	mu                  sync.RWMutex
+	nodes               map[ObjectRef]*node
+	byKind              map[groupKind]map[string][]*node // [gk][namespace] -> nodes
+	outEdges            map[ObjectRef][]Edge
+	inEdges             map[ObjectRef][]Edge
+	resolvers           []Resolver
+	listeners           []ChangeListener
+	extractPodTemplates bool
 }
 
 // Option configures a Graph during construction.
@@ -55,6 +56,16 @@ func WithResolver(r Resolver) Option {
 func WithListener(fn ChangeListener) Option {
 	return func(g *Graph) {
 		g.listeners = append(g.listeners, fn)
+	}
+}
+
+// WithPodTemplates enables extraction of synthetic PodTemplate objects
+// from workloads (Deployment, StatefulSet, DaemonSet, ReplicaSet, Job,
+// CronJob). The extracted PodTemplates are added to the graph as
+// first-class nodes with ownerReferences back to their parent workload.
+func WithPodTemplates() Option {
+	return func(g *Graph) {
+		g.extractPodTemplates = true
 	}
 }
 
@@ -186,6 +197,10 @@ func removeEdgeFromSlice(edges map[ObjectRef][]Edge, key ObjectRef, e Edge) {
 func (g *Graph) Add(objs ...unstructured.Unstructured) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+
+	if g.extractPodTemplates {
+		objs = append(objs, ExtractPodTemplates(objs)...)
+	}
 
 	lookup := &graphLookup{nodes: g.nodes, byKind: g.byKind}
 
@@ -342,6 +357,10 @@ func (g *Graph) walkTransitive(
 func (g *Graph) Load(objs []unstructured.Unstructured) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+
+	if g.extractPodTemplates {
+		objs = append(append([]unstructured.Unstructured(nil), objs...), ExtractPodTemplates(objs)...)
+	}
 
 	// Phase 1: insert all nodes
 	refs := make([]ObjectRef, len(objs))

@@ -20,50 +20,73 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
+// podRefRules defines RefRules for Pod dependencies.
+// Also used as the basis for PodTemplate rules via podTemplateRules().
+var podRefRules = []RefRule{
+	// Pod -> ServiceAccount
+	{FromKind: "Pod", ToKind: "ServiceAccount", FieldPath: "spec.serviceAccountName"},
+	// Pod -> ConfigMap (volumes)
+	{FromKind: "Pod", ToKind: "ConfigMap", FieldPath: "spec.volumes[*].configMap.name"},
+	// Pod -> ConfigMap (envFrom)
+	{FromKind: "Pod", ToKind: "ConfigMap", FieldPath: "spec.containers[*].envFrom[*].configMapRef.name"},
+	// Pod -> Secret (volumes)
+	{FromKind: "Pod", ToKind: "Secret", FieldPath: "spec.volumes[*].secret.secretName"},
+	// Pod -> Secret (envFrom)
+	{FromKind: "Pod", ToKind: "Secret", FieldPath: "spec.containers[*].envFrom[*].secretRef.name"},
+	// Pod -> PVC
+	{FromKind: "Pod", ToKind: "PersistentVolumeClaim", FieldPath: "spec.volumes[*].persistentVolumeClaim.claimName"},
+	// Pod -> Secret (imagePullSecrets)
+	{FromKind: "Pod", ToKind: "Secret", FieldPath: "spec.imagePullSecrets[*].name"},
+	// Pod -> ConfigMap (env valueFrom)
+	{FromKind: "Pod", ToKind: "ConfigMap", FieldPath: "spec.containers[*].env[*].valueFrom.configMapKeyRef.name"},
+	// Pod -> Secret (env valueFrom)
+	{FromKind: "Pod", ToKind: "Secret", FieldPath: "spec.containers[*].env[*].valueFrom.secretKeyRef.name"},
+	// Pod -> ConfigMap (projected volumes)
+	{FromKind: "Pod", ToKind: "ConfigMap", FieldPath: "spec.volumes[*].projected.sources[*].configMap.name"},
+	// Pod -> Secret (projected volumes)
+	{FromKind: "Pod", ToKind: "Secret", FieldPath: "spec.volumes[*].projected.sources[*].secret.name"},
+	// Pod -> Node
+	{FromKind: "Pod", ToKind: "Node", FieldPath: "spec.nodeName", ClusterScoped: true},
+	// Pod -> PriorityClass
+	{FromKind: "Pod", ToGroup: "scheduling.k8s.io", ToKind: "PriorityClass", FieldPath: "spec.priorityClassName", ClusterScoped: true},
+	// Pod -> RuntimeClass
+	{FromKind: "Pod", ToGroup: "node.k8s.io", ToKind: "RuntimeClass", FieldPath: "spec.runtimeClassName", ClusterScoped: true},
+	// initContainers mirrors
+	{FromKind: "Pod", ToKind: "ConfigMap", FieldPath: "spec.initContainers[*].envFrom[*].configMapRef.name"},
+	{FromKind: "Pod", ToKind: "Secret", FieldPath: "spec.initContainers[*].envFrom[*].secretRef.name"},
+	{FromKind: "Pod", ToKind: "ConfigMap", FieldPath: "spec.initContainers[*].env[*].valueFrom.configMapKeyRef.name"},
+	{FromKind: "Pod", ToKind: "Secret", FieldPath: "spec.initContainers[*].env[*].valueFrom.secretKeyRef.name"},
+	// ephemeralContainers mirrors
+	{FromKind: "Pod", ToKind: "ConfigMap", FieldPath: "spec.ephemeralContainers[*].envFrom[*].configMapRef.name"},
+	{FromKind: "Pod", ToKind: "Secret", FieldPath: "spec.ephemeralContainers[*].envFrom[*].secretRef.name"},
+	{FromKind: "Pod", ToKind: "ConfigMap", FieldPath: "spec.ephemeralContainers[*].env[*].valueFrom.configMapKeyRef.name"},
+	{FromKind: "Pod", ToKind: "Secret", FieldPath: "spec.ephemeralContainers[*].env[*].valueFrom.secretKeyRef.name"},
+}
+
 // NewStructuralResolver returns a resolver for known K8s resource references.
 func NewStructuralResolver() Resolver {
-	rules := NewRuleResolver("structural",
-		// Pod -> ServiceAccount
-		RefRule{
-			FromKind: "Pod", ToKind: "ServiceAccount",
-			FieldPath: "spec.serviceAccountName",
-		},
-		// Pod -> ConfigMap (volumes)
-		RefRule{
-			FromKind: "Pod", ToKind: "ConfigMap",
-			FieldPath: "spec.volumes[*].configMap.name",
-		},
-		// Pod -> ConfigMap (envFrom)
-		RefRule{
-			FromKind: "Pod", ToKind: "ConfigMap",
-			FieldPath: "spec.containers[*].envFrom[*].configMapRef.name",
-		},
-		// Pod -> Secret (volumes)
-		RefRule{
-			FromKind: "Pod", ToKind: "Secret",
-			FieldPath: "spec.volumes[*].secret.secretName",
-		},
-		// Pod -> Secret (envFrom)
-		RefRule{
-			FromKind: "Pod", ToKind: "Secret",
-			FieldPath: "spec.containers[*].envFrom[*].secretRef.name",
-		},
-		// Pod -> PVC
-		RefRule{
-			FromKind: "Pod", ToKind: "PersistentVolumeClaim",
-			FieldPath: "spec.volumes[*].persistentVolumeClaim.claimName",
-		},
+	// Start with Pod rules and their PodTemplate mirrors.
+	var allRules []Rule
+	for _, r := range podRefRules {
+		allRules = append(allRules, r)
+	}
+	for _, r := range podTemplateRules(podRefRules) {
+		allRules = append(allRules, r)
+	}
+
+	// Non-Pod rules (these don't have PodTemplate equivalents).
+	allRules = append(allRules,
 		// PVC -> PV
 		RefRule{
 			FromKind: "PersistentVolumeClaim", ToKind: "PersistentVolume",
-			FieldPath:      "spec.volumeName",
+			FieldPath:     "spec.volumeName",
 			ClusterScoped: true,
 		},
 		// PVC -> StorageClass
 		RefRule{
 			FromGroup: "", FromKind: "PersistentVolumeClaim",
 			ToGroup: "storage.k8s.io", ToKind: "StorageClass",
-			FieldPath:      "spec.storageClassName",
+			FieldPath:     "spec.storageClassName",
 			ClusterScoped: true,
 		},
 		// Ingress -> Service
@@ -88,52 +111,7 @@ func NewStructuralResolver() Resolver {
 		RefRule{
 			FromGroup: "networking.k8s.io", FromKind: "Ingress",
 			ToGroup: "networking.k8s.io", ToKind: "IngressClass",
-			FieldPath:      "spec.ingressClassName",
-			ClusterScoped: true,
-		},
-		// Pod -> Secret (imagePullSecrets)
-		RefRule{
-			FromKind: "Pod", ToKind: "Secret",
-			FieldPath: "spec.imagePullSecrets[*].name",
-		},
-		// Pod -> ConfigMap (env valueFrom)
-		RefRule{
-			FromKind: "Pod", ToKind: "ConfigMap",
-			FieldPath: "spec.containers[*].env[*].valueFrom.configMapKeyRef.name",
-		},
-		// Pod -> Secret (env valueFrom)
-		RefRule{
-			FromKind: "Pod", ToKind: "Secret",
-			FieldPath: "spec.containers[*].env[*].valueFrom.secretKeyRef.name",
-		},
-		// Pod -> ConfigMap (projected volumes)
-		RefRule{
-			FromKind: "Pod", ToKind: "ConfigMap",
-			FieldPath: "spec.volumes[*].projected.sources[*].configMap.name",
-		},
-		// Pod -> Secret (projected volumes)
-		RefRule{
-			FromKind: "Pod", ToKind: "Secret",
-			FieldPath: "spec.volumes[*].projected.sources[*].secret.name",
-		},
-		// Pod -> Node
-		RefRule{
-			FromKind: "Pod", ToKind: "Node",
-			FieldPath:      "spec.nodeName",
-			ClusterScoped: true,
-		},
-		// Pod -> PriorityClass
-		RefRule{
-			FromKind: "Pod",
-			ToGroup: "scheduling.k8s.io", ToKind: "PriorityClass",
-			FieldPath:      "spec.priorityClassName",
-			ClusterScoped: true,
-		},
-		// Pod -> RuntimeClass
-		RefRule{
-			FromKind: "Pod",
-			ToGroup: "node.k8s.io", ToKind: "RuntimeClass",
-			FieldPath:      "spec.runtimeClassName",
+			FieldPath:     "spec.ingressClassName",
 			ClusterScoped: true,
 		},
 		// StatefulSet -> Service (headless)
@@ -146,46 +124,9 @@ func NewStructuralResolver() Resolver {
 		RefRule{
 			FromKind: "PersistentVolume",
 			ToGroup: "storage.k8s.io", ToKind: "StorageClass",
-			FieldPath:      "spec.storageClassName",
+			FieldPath:     "spec.storageClassName",
 			ClusterScoped: true,
 		},
-		// initContainers mirrors
-		RefRule{
-			FromKind: "Pod", ToKind: "ConfigMap",
-			FieldPath: "spec.initContainers[*].envFrom[*].configMapRef.name",
-		},
-		RefRule{
-			FromKind: "Pod", ToKind: "Secret",
-			FieldPath: "spec.initContainers[*].envFrom[*].secretRef.name",
-		},
-		RefRule{
-			FromKind: "Pod", ToKind: "ConfigMap",
-			FieldPath: "spec.initContainers[*].env[*].valueFrom.configMapKeyRef.name",
-		},
-		RefRule{
-			FromKind: "Pod", ToKind: "Secret",
-			FieldPath: "spec.initContainers[*].env[*].valueFrom.secretKeyRef.name",
-		},
-		// ephemeralContainers mirrors
-		RefRule{
-			FromKind: "Pod", ToKind: "ConfigMap",
-			FieldPath: "spec.ephemeralContainers[*].envFrom[*].configMapRef.name",
-		},
-		RefRule{
-			FromKind: "Pod", ToKind: "Secret",
-			FieldPath: "spec.ephemeralContainers[*].envFrom[*].secretRef.name",
-		},
-		RefRule{
-			FromKind: "Pod", ToKind: "ConfigMap",
-			FieldPath: "spec.ephemeralContainers[*].env[*].valueFrom.configMapKeyRef.name",
-		},
-		RefRule{
-			FromKind: "Pod", ToKind: "Secret",
-			FieldPath: "spec.ephemeralContainers[*].env[*].valueFrom.secretKeyRef.name",
-		},
-
-		// Typed references
-
 		// HPA -> scaleTargetRef (unconstrained: any kind)
 		RefRule{
 			FromGroup: "autoscaling", FromKind: "HorizontalPodAutoscaler",
@@ -197,7 +138,7 @@ func NewStructuralResolver() Resolver {
 			ToGroup:   "rbac.authorization.k8s.io",
 			FieldPath: "roleRef",
 		},
-		// RoleBinding -> subjects (ServiceAccount only — User/Group are not API objects)
+		// RoleBinding -> subjects (ServiceAccount only)
 		RefRule{
 			FromGroup: "rbac.authorization.k8s.io", FromKind: "RoleBinding",
 			ToKind:    "ServiceAccount",
@@ -209,7 +150,7 @@ func NewStructuralResolver() Resolver {
 			ToGroup:   "rbac.authorization.k8s.io",
 			FieldPath: "roleRef",
 		},
-		// ClusterRoleBinding -> subjects (ServiceAccount only — User/Group are not API objects)
+		// ClusterRoleBinding -> subjects (ServiceAccount only)
 		RefRule{
 			FromGroup: "rbac.authorization.k8s.io", FromKind: "ClusterRoleBinding",
 			ToKind:    "ServiceAccount",
@@ -223,6 +164,7 @@ func NewStructuralResolver() Resolver {
 		},
 	)
 
+	rules := NewRuleResolver("structural", allRules...)
 	return &structuralResolver{rules: rules}
 }
 

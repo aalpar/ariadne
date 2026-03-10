@@ -49,6 +49,7 @@ func main() {
 func runGraph(args []string) int {
 	fs := flag.NewFlagSet("graph", flag.ExitOnError)
 	format := fs.String("format", "dot", "Output format: dot, json")
+	podTemplates := fs.Bool("pod-templates", false, "Extract PodTemplates from workloads")
 	fs.Parse(args)
 
 	var objs []unstructured.Unstructured
@@ -73,7 +74,7 @@ func runGraph(args []string) int {
 		return 2
 	}
 
-	if err := graph(objs, *format, os.Stdout); err != nil {
+	if err := graph(objs, *format, *podTemplates, os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 2
 	}

@@ -24,14 +24,18 @@ import (
 
 // graph builds a dependency graph from the given objects and writes it
 // to w in the specified format ("dot" or "json").
-func graph(objs []unstructured.Unstructured, format string, w io.Writer) error {
-	g := ariadne.NewDefault(
+func graph(objs []unstructured.Unstructured, format string, podTemplates bool, w io.Writer) error {
+	opts := []ariadne.Option{
 		ariadne.WithResolver(ariadne.NewArgoCDResolver()),
 		ariadne.WithResolver(ariadne.NewKyvernoResolver()),
 		ariadne.WithResolver(ariadne.NewCrossplaneResolver()),
 		ariadne.WithResolver(ariadne.NewGatewayAPIResolver()),
 		ariadne.WithResolver(ariadne.NewClusterAPIResolver()),
-	)
+	}
+	if podTemplates {
+		opts = append(opts, ariadne.WithPodTemplates())
+	}
+	g := ariadne.NewDefault(opts...)
 	g.Load(objs)
 
 	switch format {

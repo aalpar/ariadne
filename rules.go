@@ -48,6 +48,7 @@ type LabelSelectorRule struct {
 	ToGroup, ToKind     string
 	SelectorFieldPath   string
 	TargetNamespace     string // "" = same namespace; "*" = all namespaces
+	TargetLabelsPath    string // optional: path to target's labels (default: metadata.labels)
 }
 
 func (LabelSelectorRule) rule() {}
@@ -488,7 +489,7 @@ func resolveLabelSelector(ref ObjectRef, obj *unstructured.Unstructured, rule La
 
 	var edges []Edge
 	for _, target := range targets {
-		targetLabels := target.GetLabels()
+		targetLabels := labelsFor(target, rule.TargetLabelsPath)
 		if sel.Matches(labels.Set(targetLabels)) {
 			edges = append(edges, Edge{
 				From:     ref,
@@ -507,7 +508,7 @@ func resolveLabelSelectorReverse(ref ObjectRef, obj *unstructured.Unstructured, 
 		return nil
 	}
 
-	targetLabels := obj.GetLabels()
+	targetLabels := labelsFor(obj, rule.TargetLabelsPath)
 	if len(targetLabels) == 0 {
 		return nil
 	}
@@ -673,4 +674,28 @@ func extractSelector(obj map[string]interface{}, path string) labels.Selector {
 
 func splitFieldPath(path string) []string {
 	return strings.Split(path, ".")
+}
+
+// labelsFor returns the labels for a target object. When path is empty,
+// it returns metadata.labels (the default). When set, it extracts labels
+// from the specified field path (e.g. "template.metadata.labels").
+func labelsFor(obj *unstructured.Unstructured, path string) map[string]string {
+	if path == "" {
+		return obj.GetLabels()
+	}
+	raw := extractRawValues(obj.Object, path)
+	if len(raw) == 0 {
+		return nil
+	}
+	m, ok := raw[0].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	result := make(map[string]string, len(m))
+	for k, v := range m {
+		if s, ok := v.(string); ok {
+			result[k] = s
+		}
+	}
+	return result
 }

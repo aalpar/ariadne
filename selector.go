@@ -17,6 +17,7 @@ package ariadne
 // NewSelectorResolver returns a resolver for label/selector-based dependencies.
 func NewSelectorResolver() Resolver {
 	return NewRuleResolver("selector",
+		// Pod targets
 		LabelSelectorRule{
 			FromKind: "Service", ToKind: "Pod",
 			SelectorFieldPath: "spec.selector",
@@ -30,6 +31,24 @@ func NewSelectorResolver() Resolver {
 			FromGroup: "policy", FromKind: "PodDisruptionBudget",
 			ToKind:            "Pod",
 			SelectorFieldPath: "spec.selector",
+		},
+		// PodTemplate targets (match against template labels, not metadata labels)
+		LabelSelectorRule{
+			FromKind: "Service", ToKind: "PodTemplate",
+			SelectorFieldPath: "spec.selector",
+			TargetLabelsPath:  "template.metadata.labels",
+		},
+		LabelSelectorRule{
+			FromGroup: "networking.k8s.io", FromKind: "NetworkPolicy",
+			ToKind:            "PodTemplate",
+			SelectorFieldPath: "spec.podSelector",
+			TargetLabelsPath:  "template.metadata.labels",
+		},
+		LabelSelectorRule{
+			FromGroup: "policy", FromKind: "PodDisruptionBudget",
+			ToKind:            "PodTemplate",
+			SelectorFieldPath: "spec.selector",
+			TargetLabelsPath:  "template.metadata.labels",
 		},
 	)
 }

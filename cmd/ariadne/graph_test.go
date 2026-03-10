@@ -28,7 +28,7 @@ func TestGraph_dotOutput(t *testing.T) {
 	sa := newObj("", "v1", "ServiceAccount", "default", "my-sa")
 
 	var buf bytes.Buffer
-	err := graph([]unstructured.Unstructured{pod, sa}, "dot", &buf)
+	err := graph([]unstructured.Unstructured{pod, sa}, "dot", false, &buf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestGraph_jsonOutput(t *testing.T) {
 	sa := newObj("", "v1", "ServiceAccount", "default", "my-sa")
 
 	var buf bytes.Buffer
-	err := graph([]unstructured.Unstructured{pod, sa}, "json", &buf)
+	err := graph([]unstructured.Unstructured{pod, sa}, "json", false, &buf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestGraph_invalidFormat(t *testing.T) {
 	pod := newObj("", "v1", "Pod", "default", "web")
 
 	var buf bytes.Buffer
-	err := graph([]unstructured.Unstructured{pod}, "xml", &buf)
+	err := graph([]unstructured.Unstructured{pod}, "xml", false, &buf)
 	if err == nil {
 		t.Fatal("expected error for invalid format")
 	}
