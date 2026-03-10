@@ -58,6 +58,7 @@ Single-package library (`package ariadne`). All source files are at the repo roo
 | `kyverno.go` | Kyverno resolver (ClusterPolicy/Policy→matched resource kinds) |
 | `gateway.go` | Gateway API resolver (HTTPRoute→Service, HTTPRoute→Gateway, Gateway→GatewayClass) |
 | `clusterapi.go` | Cluster API resolver (Machine/Cluster→infrastructure/bootstrap providers) |
+| `istio.go` | Istio resolver (VirtualService/DestinationRule→Service via DNS host parsing, AuthorizationPolicy→Pod via selector) |
 | `topo.go` | `TopologicalSort` (Kahn's algorithm), `Cycles` (DFS) |
 | `export.go` | `ExportDOT`, `ExportJSON` |
 | `cmd/ariadne/main.go` | CLI entry point, subcommand dispatch |

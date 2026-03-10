@@ -99,9 +99,9 @@ Opt-in resolvers for popular CRD ecosystems, same pattern as existing Gateway/Ky
 
 ### Istio
 
-- [ ] **VirtualService → Service**: `spec.http[*].route[*].destination.host` — host is a DNS name (e.g., `reviews.default.svc.cluster.local` or short name `reviews`). Needs custom resolver to parse host format into namespace+name.
-- [ ] **DestinationRule → Service**: `spec.host` — same DNS-name-as-ref pattern as VirtualService.
-- [ ] **AuthorizationPolicy → workloads**: `spec.selector` — label-selector-based, fits `LabelSelectorRule`.
+- [x] **VirtualService → Service**: `spec.http[*].route[*].destination.host` — host is a DNS name (e.g., `reviews.default.svc.cluster.local` or short name `reviews`). Custom resolver parses host format into namespace+name. (`istio.go`)
+- [x] **DestinationRule → Service**: `spec.host` — same DNS-name-as-ref pattern as VirtualService. (`istio.go`)
+- [x] **AuthorizationPolicy → Pod**: `spec.selector` — label-selector-based via `LabelSelectorRule`. (`istio.go`)
 
 ### Prometheus / monitoring
 
