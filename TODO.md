@@ -67,3 +67,60 @@ These patterns don't fit RefRule/LabelSelectorRule cleanly. They reveal what a c
 
 - [x] **PodTemplate extraction**: Extract synthetic `core/v1 PodTemplate` from workloads (Deployment, StatefulSet, DaemonSet, ReplicaSet, Job, CronJob) for static YAML analysis. Opt-in via `WithPodTemplates()`. Pod RefRules are mechanically mirrored to PodTemplate rules. Selector rules match against `template.metadata.labels`. (`podtemplate.go`)
 - [ ] **Terminology clarification**: Is a K8s object a "resource"? Or is "resource" the registered API type (`kubectl api-resources`)?
+
+## Missing core K8s resolvers
+
+References in core/built-in K8s types not yet covered by `NewDefault()`.
+
+### Fits existing primitives
+
+- [ ] **Webhook → Service**: ValidatingWebhookConfiguration/MutatingWebhookConfiguration `webhooks[*].clientConfig.service` — typed-ref with name+namespace (cross-namespace). Cluster-scoped source. Hits every cluster with admission webhooks.
+- [ ] **APIService → Service**: `spec.service` — typed-ref with name+namespace. Cluster-scoped source. Aggregated API servers.
+- [ ] **ServiceAccount → Secret**: `spec.secrets[*].name` and `spec.imagePullSecrets[*].name` — bare name refs. Deprecated post-1.24 but still present in many clusters.
+- [ ] **VolumeAttachment → PV**: `spec.source.persistentVolumeName` — bare name ref, cluster-scoped source.
+- [ ] **VolumeAttachment → Node**: `spec.nodeName` — bare name ref, cluster-scoped source.
+- [ ] **PV → CSIDriver**: `spec.csi.driver` — bare name ref matching CSIDriver object name. Both cluster-scoped.
+- [ ] **StorageClass → CSIDriver**: `provisioner` — bare name ref matching CSIDriver object name. Both cluster-scoped.
+
+### Beyond current primitives
+
+- [ ] **EndpointSlice → Service**: `metadata.labels["kubernetes.io/service-name"]` — label-based convention, not a field path. Needs a custom resolver or a new rule type for label-key refs.
+- [ ] **Namespace dependency**: Every namespaced object implicitly depends on its Namespace. Universal but extremely noisy — should be opt-in (`WithNamespaceDeps()`?). Needs custom resolver iterating all namespaced nodes.
+
+## Missing CRD ecosystem resolvers
+
+Opt-in resolvers for popular CRD ecosystems, same pattern as existing Gateway/Kyverno/etc.
+
+### cert-manager
+
+- [ ] **Certificate → Secret**: `spec.secretName` — bare name ref. The Secret where the cert is stored.
+- [ ] **Certificate → Issuer/ClusterIssuer**: `spec.issuerRef` — typed-ref with name+kind+group. ClusterIssuer is cluster-scoped.
+- [ ] **Ingress → Certificate**: annotation-based (`cert-manager.io/cluster-issuer`, `cert-manager.io/issuer`). Needs custom resolver reading annotations, not field paths.
+
+### Istio
+
+- [ ] **VirtualService → Service**: `spec.http[*].route[*].destination.host` — host is a DNS name (e.g., `reviews.default.svc.cluster.local` or short name `reviews`). Needs custom resolver to parse host format into namespace+name.
+- [ ] **DestinationRule → Service**: `spec.host` — same DNS-name-as-ref pattern as VirtualService.
+- [ ] **AuthorizationPolicy → workloads**: `spec.selector` — label-selector-based, fits `LabelSelectorRule`.
+
+### Prometheus / monitoring
+
+- [ ] **ServiceMonitor → Service**: `spec.selector` + `spec.namespaceSelector` — label-selector-based, fits `LabelSelectorRule`. `namespaceSelector` adds cross-namespace matching complexity.
+- [ ] **PodMonitor → Pod**: `spec.selector` + `spec.namespaceSelector` — same pattern as ServiceMonitor.
+
+### Flux CD
+
+- [ ] **Kustomization → source**: `spec.sourceRef` — typed-ref with kind/name/namespace. Points to GitRepository, OCIRepository, Bucket, etc.
+- [ ] **HelmRelease → HelmChart**: `spec.chartRef` or `spec.chart.spec.sourceRef` — typed-ref. Also HelmRelease → values Secrets/ConfigMaps via `spec.valuesFrom[*]`.
+- [ ] **GitRepository → Secret**: `spec.secretRef.name` — bare name ref for auth credentials.
+
+### Tekton
+
+- [ ] **Pipeline → Task**: `spec.tasks[*].taskRef` — typed-ref with name+kind.
+- [ ] **PipelineRun → Pipeline**: `spec.pipelineRef` — typed-ref with name+kind.
+- [ ] **TaskRun → Task**: `spec.taskRef` — typed-ref with name+kind.
+
+### Knative
+
+- [ ] **Knative Service → Configuration**: ownerRef handles this, but `spec.template` is the source of truth for the Configuration spec.
+- [ ] **Route → Knative Service**: `spec.traffic[*].revisionName` or `spec.traffic[*].configurationName` — bare name refs to Revisions or Configurations.
