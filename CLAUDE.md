@@ -52,6 +52,7 @@ Single-package library (`package ariadne`). All source files are at the repo roo
 | `structural.go` | Built-in resolver for known K8s references (36 RefRules for Pod, PVC, PV, Ingress, StatefulSet, HPA, RBAC refs + ownerRefs) |
 | `selector.go` | Built-in resolver for label/selector matching (Service→Pod, NetworkPolicy→Pod, PDB→Pod) |
 | `event.go` | Built-in resolver for K8s Event→involvedObject edges |
+| `namespace.go` | Opt-in resolver for namespaced object→Namespace edges (`WithNamespaceDeps()`) |
 | `argocd.go` | Argo CD resolver (Application→Namespace, Application→AppProject) |
 | `certmanager.go` | cert-manager resolver (Certificate→Secret, Certificate→Issuer/ClusterIssuer, Ingress→Issuer via annotations) |
 | `crossplane.go` | Crossplane resolver (managed→ProviderConfig, Composition→Composite) |

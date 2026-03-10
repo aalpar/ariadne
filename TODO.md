@@ -85,7 +85,7 @@ References in core/built-in K8s types not yet covered by `NewDefault()`.
 ### Beyond current primitives
 
 - [x] **EndpointSlice → Service**: `metadata.labels["kubernetes.io/service-name"]` — new `LabelRefRule` type in `rules.go`. Label value is the target name. Registered in `NewStructuralResolver()`.
-- [ ] **Namespace dependency**: Every namespaced object implicitly depends on its Namespace. Universal but extremely noisy — should be opt-in (`WithNamespaceDeps()`?). Needs custom resolver iterating all namespaced nodes.
+- [x] **Namespace dependency**: Every namespaced object implicitly depends on its Namespace. Opt-in via `WithNamespaceDeps()` / `NewNamespaceResolver()`. Reverse resolution uses `ListByNamespace` index. (`namespace.go`)
 
 ## Missing CRD ecosystem resolvers
 
