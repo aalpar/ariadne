@@ -21,8 +21,23 @@
 
 ## Performance
 
-- [ ] Unconstrained reverse resolution for subjects rules: when any object is added, the reverse resolver scans all RoleBindings/ClusterRoleBindings because ToKind/ToGroup are empty. For large graphs this is O(objects × bindings). Options: constrain to known subject kinds (ServiceAccount), add a kind-based index to Lookup, or move subjects handling to custom resolver logic. Defer until performance data exists.
-- [ ] **ownerRef reverse resolution scans entire graph** — `resolveOwnerRefs` (`structural.go:261`) calls `lookup.ListAll()` for every added object, iterating every node to find objects whose `ownerReferences` point to the new object. This is O(N) per `Add`, making bulk insertion O(N²). At 10K objects this is 100M iterations. Same mitigation options as subjects (namespace-scoped filter, kind index). Defer until benchmarks exist.
+Benchmarks in `bench_test.go` (Apple M4 Max, realistic K8s object mix).
+
+### GroupKind index (done)
+
+Added `map[groupKind]map[namespace][]*node` index to `graphLookup`. `List` and `ListInNamespace` are now O(results) instead of O(all nodes). ownerRef reverse uses `ListByNamespace` for namespaced owners.
+
+| Benchmark | Before | After | Speedup |
+|---|---|---|---|
+| Load/n=100 | 3.4ms | 2.6ms | 1.3x |
+| Load/n=1000 | 138ms | 41ms | 3.4x |
+| Load/n=10000 | 13.2s | 1.78s | **7.4x** |
+| AddAll/n=10000 | 6.4s | 815ms | **7.8x** |
+| AddSingle/graph=10000 | 1.16ms | 174µs | **6.6x** |
+
+### Remaining bottleneck
+
+- [ ] **Unconstrained subjects reverse resolution** — subjects rules have `ToKind/ToGroup` empty, so the type guard in `resolveRefReverse` is skipped for every added object. Each Add calls `List("rbac.authorization.k8s.io", "RoleBinding")` which is now O(RoleBindings) instead of O(N), but still runs for all 10K objects. At 10K objects × 500 RoleBindings = 5M iterations. Options: constrain ToKind to known subject kinds (ServiceAccount), or move subjects to custom resolver logic.
 
 ## CRD-level typed references
 
