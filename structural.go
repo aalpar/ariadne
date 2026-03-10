@@ -56,13 +56,15 @@ func NewStructuralResolver() Resolver {
 		// PVC -> PV
 		RefRule{
 			FromKind: "PersistentVolumeClaim", ToKind: "PersistentVolume",
-			FieldPath: "spec.volumeName",
+			FieldPath:      "spec.volumeName",
+			ClusterScoped: true,
 		},
 		// PVC -> StorageClass
 		RefRule{
 			FromGroup: "", FromKind: "PersistentVolumeClaim",
 			ToGroup: "storage.k8s.io", ToKind: "StorageClass",
-			FieldPath: "spec.storageClassName",
+			FieldPath:      "spec.storageClassName",
+			ClusterScoped: true,
 		},
 		// Ingress -> Service
 		RefRule{
@@ -86,7 +88,8 @@ func NewStructuralResolver() Resolver {
 		RefRule{
 			FromGroup: "networking.k8s.io", FromKind: "Ingress",
 			ToGroup: "networking.k8s.io", ToKind: "IngressClass",
-			FieldPath: "spec.ingressClassName",
+			FieldPath:      "spec.ingressClassName",
+			ClusterScoped: true,
 		},
 		// Pod -> Secret (imagePullSecrets)
 		RefRule{
@@ -116,19 +119,22 @@ func NewStructuralResolver() Resolver {
 		// Pod -> Node
 		RefRule{
 			FromKind: "Pod", ToKind: "Node",
-			FieldPath: "spec.nodeName",
+			FieldPath:      "spec.nodeName",
+			ClusterScoped: true,
 		},
 		// Pod -> PriorityClass
 		RefRule{
 			FromKind: "Pod",
 			ToGroup: "scheduling.k8s.io", ToKind: "PriorityClass",
-			FieldPath: "spec.priorityClassName",
+			FieldPath:      "spec.priorityClassName",
+			ClusterScoped: true,
 		},
 		// Pod -> RuntimeClass
 		RefRule{
 			FromKind: "Pod",
 			ToGroup: "node.k8s.io", ToKind: "RuntimeClass",
-			FieldPath: "spec.runtimeClassName",
+			FieldPath:      "spec.runtimeClassName",
+			ClusterScoped: true,
 		},
 		// StatefulSet -> Service (headless)
 		RefRule{
@@ -140,7 +146,8 @@ func NewStructuralResolver() Resolver {
 		RefRule{
 			FromKind: "PersistentVolume",
 			ToGroup: "storage.k8s.io", ToKind: "StorageClass",
-			FieldPath: "spec.storageClassName",
+			FieldPath:      "spec.storageClassName",
+			ClusterScoped: true,
 		},
 		// initContainers mirrors
 		RefRule{

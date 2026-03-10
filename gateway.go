@@ -35,7 +35,8 @@ func NewGatewayAPIResolver() Resolver {
 		RefRule{
 			FromGroup: "gateway.networking.k8s.io", FromKind: "Gateway",
 			ToGroup: "gateway.networking.k8s.io", ToKind: "GatewayClass",
-			FieldPath: "spec.gatewayClassName",
+			FieldPath:      "spec.gatewayClassName",
+			ClusterScoped: true,
 		},
 	)
 }

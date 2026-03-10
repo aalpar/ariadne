@@ -37,6 +37,7 @@ type RefRule struct {
 	ToGroup, ToKind     string
 	FieldPath           string // path to name value(s)
 	NamespaceFieldPath  string // optional: path to namespace value(s)
+	ClusterScoped       bool   // target kind has no namespace (e.g. Node, StorageClass)
 }
 
 func (RefRule) rule() {}
