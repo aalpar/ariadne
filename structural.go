@@ -176,6 +176,13 @@ func NewStructuralResolver() Resolver {
 			FieldPath:          "webhooks[*].clientConfig.service.name",
 			NamespaceFieldPath: "webhooks[*].clientConfig.service.namespace",
 		},
+		// APIService -> Service (cross-namespace)
+		RefRule{
+			FromGroup: "apiregistration.k8s.io", FromKind: "APIService",
+			ToKind:             "Service",
+			FieldPath:          "spec.service.name",
+			NamespaceFieldPath: "spec.service.namespace",
+		},
 	)
 
 	rules := NewRuleResolver("structural", allRules...)

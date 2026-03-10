@@ -490,3 +490,88 @@ func TestIntegration_MutatingWebhookService_ReverseAdd(t *testing.T) {
 		t.Fatalf("expected MWC -> Service, got %v", deps[0].To)
 	}
 }
+
+func TestIntegration_APIServiceService(t *testing.T) {
+	g := NewDefault()
+
+	objs := []unstructured.Unstructured{
+		// Service in "monitoring" namespace
+		{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "Service",
+			"metadata": map[string]interface{}{
+				"name": "prometheus-adapter", "namespace": "monitoring",
+			},
+		}},
+		// APIService (cluster-scoped) -> Service
+		{Object: map[string]interface{}{
+			"apiVersion": "apiregistration.k8s.io/v1", "kind": "APIService",
+			"metadata": map[string]interface{}{
+				"name": "v1beta1.metrics.k8s.io",
+			},
+			"spec": map[string]interface{}{
+				"service": map[string]interface{}{
+					"name":      "prometheus-adapter",
+					"namespace": "monitoring",
+				},
+			},
+		}},
+	}
+	g.Load(objs)
+
+	apiSvcRef := ObjectRef{Group: "apiregistration.k8s.io", Kind: "APIService", Name: "v1beta1.metrics.k8s.io"}
+	deps := g.DependenciesOf(apiSvcRef)
+	if len(deps) != 1 {
+		t.Fatalf("expected 1 APIService dep, got %d: %v", len(deps), deps)
+	}
+	svcRef := ObjectRef{Kind: "Service", Namespace: "monitoring", Name: "prometheus-adapter"}
+	if deps[0].To != svcRef {
+		t.Fatalf("expected APIService -> Service, got %v", deps[0].To)
+	}
+
+	// Service should have the APIService as a dependent.
+	dependents := g.DependentsOf(svcRef)
+	if len(dependents) != 1 {
+		t.Fatalf("expected 1 dependent of Service, got %d: %v", len(dependents), dependents)
+	}
+}
+
+func TestIntegration_APIServiceService_ReverseAdd(t *testing.T) {
+	g := NewDefault()
+
+	// Add APIService first, then the Service.
+	apiSvc := unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "apiregistration.k8s.io/v1", "kind": "APIService",
+		"metadata": map[string]interface{}{
+			"name": "v1beta1.custom.metrics.k8s.io",
+		},
+		"spec": map[string]interface{}{
+			"service": map[string]interface{}{
+				"name":      "custom-metrics-server",
+				"namespace": "kube-system",
+			},
+		},
+	}}
+	g.Add(apiSvc)
+
+	apiSvcRef := ObjectRef{Group: "apiregistration.k8s.io", Kind: "APIService", Name: "v1beta1.custom.metrics.k8s.io"}
+	if len(g.DependenciesOf(apiSvcRef)) != 0 {
+		t.Fatal("expected 0 deps before Service is added")
+	}
+
+	svc := unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Service",
+		"metadata": map[string]interface{}{
+			"name": "custom-metrics-server", "namespace": "kube-system",
+		},
+	}}
+	g.Add(svc)
+
+	deps := g.DependenciesOf(apiSvcRef)
+	if len(deps) != 1 {
+		t.Fatalf("expected 1 APIService dep after reverse add, got %d: %v", len(deps), deps)
+	}
+	svcRef := ObjectRef{Kind: "Service", Namespace: "kube-system", Name: "custom-metrics-server"}
+	if deps[0].To != svcRef {
+		t.Fatalf("expected APIService -> Service, got %v", deps[0].To)
+	}
+}
