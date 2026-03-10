@@ -69,6 +69,7 @@ func main() {
 	g := ariadne.NewDefault()
 
 	// Feed objects from any source (client-go, informers, YAML, etc.)
+	// These helpers build unstructured.Unstructured values for the example.
 	g.Load([]unstructured.Unstructured{
 		makeConfigMap("default", "app-config"),
 		makePod("default", "web", "app-config"),
@@ -160,7 +161,7 @@ Label/selector matching:
 |---|---|---|
 | Service | Pod | `spec.selector` |
 | NetworkPolicy | Pod | `spec.podSelector` |
-| PodDisruptionBudget | Pod | `spec.selector.matchLabels` |
+| PodDisruptionBudget | Pod | `spec.selector` |
 
 ### Event
 
@@ -186,7 +187,7 @@ g := ariadne.NewDefault(
 | `NewCrossplaneResolver(managed...)` | Managed resources→ProviderConfig, Composition→Composite instances |
 | `NewKyvernoResolver()` | ClusterPolicy/Policy→matched resource kinds |
 | `NewGatewayAPIResolver()` | HTTPRoute→Service (backendRef), HTTPRoute→Gateway (parentRef), Gateway→GatewayClass |
-| `NewClusterAPIResolver()` | Machine/Cluster→infrastructure and bootstrap providers (typed-refs) |
+| `NewClusterAPIResolver()` | Machine/Cluster/MachineDeployment→infrastructure and bootstrap providers (typed-refs) |
 
 ## Custom resolvers
 
@@ -220,11 +221,15 @@ g := ariadne.New(
 
 **Rule types:**
 
-- `RefRule` — a field contains the name of a target resource, with optional
-  `NamespaceFieldPath` for cross-namespace references. When no namespace field
-  is specified, resolution tries the source's namespace first, then
-  cluster-scoped — rules don't need to know whether the target is namespaced.
-- `LabelSelectorRule` — match targets by label selector
+- `RefRule` — a field contains the name of a target resource.
+  `NamespaceFieldPath` specifies where to read the target namespace for
+  cross-namespace references. `ClusterScoped` marks targets that have no
+  namespace (Node, StorageClass, etc.) — used by `Extract` to determine the
+  correct namespace without a Lookup. When neither is set, `Resolve` tries
+  the source's namespace first, then cluster-scoped; `Extract` inherits
+  the source namespace.
+- `LabelSelectorRule` — match targets by label selector. The selector format
+  (full `matchLabels`/`matchExpressions` vs flat map) is auto-detected.
 
 ### Resolver interface
 
@@ -233,12 +238,18 @@ For logic beyond declarative rules, implement the interface directly:
 ```go
 type Resolver interface {
 	Name() string
+	Extract(obj *unstructured.Unstructured) []Edge
 	Resolve(obj *unstructured.Unstructured, lookup Lookup) []Edge
 }
 ```
 
-Resolvers receive a read-only `Lookup` to query existing graph nodes. They
-cannot mutate the graph or access edges.
+- **`Extract`** inspects the object's fields and returns forward-direction
+  edges without querying the graph. No Lookup is available. Used by `ResolveAll`
+  for static analysis and linting. Label-selector edges cannot be extracted
+  (they require a Lookup to find matching targets).
+- **`Resolve`** returns bidirectional, existence-filtered edges using a
+  read-only `Lookup` to query existing graph nodes. Resolvers cannot mutate
+  the graph or access edges. Used by `Graph.Add` and `Graph.Load`.
 
 ## Graph API
 
@@ -290,10 +301,13 @@ edges := ariadne.ResolveAll(objs,
 // edges includes references to targets not in objs
 ```
 
-`ResolveAll` bypasses the graph — it takes objects and resolvers directly and
-returns all potential edges, deduplicated. This is useful for linting, static
-analysis, and any scenario where you need to know what an object *would*
-reference.
+`ResolveAll` calls `Extract` (not `Resolve`) on each resolver — it extracts
+forward-direction references from field inspection alone, without a Lookup.
+Label-selector and reverse edges are not included. The returned edges are
+deduplicated.
+
+This is useful for linting, static analysis, and any scenario where you need to
+know what an object *would* reference regardless of what exists in the graph.
 
 ### Export
 
@@ -349,3 +363,7 @@ run concurrently; writes (`Add`, `Remove`, `Load`) are exclusive.
 - Go standard library
 
 Does **not** depend on client-go, controller-runtime, or any graph library.
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE).
