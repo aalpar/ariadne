@@ -100,6 +100,88 @@ func TestKyverno_PolicyNamespaceScoped(t *testing.T) {
 	}
 }
 
+func TestKyverno_GroupQualifiedKinds(t *testing.T) {
+	g := New(WithResolver(NewKyvernoResolver()))
+
+	policy := unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "kyverno.io/v1", "kind": "ClusterPolicy",
+		"metadata": map[string]interface{}{
+			"name": "restrict-deployments",
+		},
+		"spec": map[string]interface{}{
+			"rules": []interface{}{
+				map[string]interface{}{
+					"match": map[string]interface{}{
+						"resources": map[string]interface{}{
+							"kinds": []interface{}{"apps/v1/Deployment", "Pod"},
+						},
+					},
+				},
+			},
+		},
+	}}
+
+	deploy := newObj("apps", "v1", "Deployment", "default", "web")
+	pod := newCoreObj("Pod", "default", "api")
+	svc := newCoreObj("Service", "default", "web-svc") // should not match
+
+	g.Load([]unstructured.Unstructured{policy, deploy, pod, svc})
+
+	policyRef := ObjectRef{Group: "kyverno.io", Kind: "ClusterPolicy", Name: "restrict-deployments"}
+	deps := g.DependenciesOf(policyRef)
+	if len(deps) != 2 {
+		t.Fatalf("expected 2 edges (Deployment + Pod), got %d", len(deps))
+	}
+
+	kinds := map[string]bool{}
+	for _, e := range deps {
+		kinds[e.To.Group+"/"+e.To.Kind] = true
+	}
+	if !kinds["apps/Deployment"] {
+		t.Error("expected edge to apps/Deployment")
+	}
+	if !kinds["/Pod"] {
+		t.Error("expected edge to Pod")
+	}
+}
+
+func TestKyverno_GroupQualifiedReverse(t *testing.T) {
+	g := New(WithResolver(NewKyvernoResolver()))
+
+	policy := unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "kyverno.io/v1", "kind": "ClusterPolicy",
+		"metadata": map[string]interface{}{
+			"name": "restrict-deployments",
+		},
+		"spec": map[string]interface{}{
+			"rules": []interface{}{
+				map[string]interface{}{
+					"match": map[string]interface{}{
+						"resources": map[string]interface{}{
+							"kinds": []interface{}{"apps/Deployment"},
+						},
+					},
+				},
+			},
+		},
+	}}
+
+	deploy := newObj("apps", "v1", "Deployment", "default", "web")
+
+	// Add policy first, then deployment — reverse resolution should create the edge.
+	g.Add(policy)
+	g.Add(deploy)
+
+	deployRef := ObjectRef{Group: "apps", Kind: "Deployment", Namespace: "default", Name: "web"}
+	incoming := g.DependentsOf(deployRef)
+	if len(incoming) != 1 {
+		t.Fatalf("expected 1 incoming edge from reverse resolution, got %d", len(incoming))
+	}
+	if incoming[0].From.Kind != "ClusterPolicy" {
+		t.Errorf("expected edge from ClusterPolicy, got from %s", incoming[0].From.Kind)
+	}
+}
+
 func TestKyverno_ReverseAdd(t *testing.T) {
 	g := New(WithResolver(NewKyvernoResolver()))
 

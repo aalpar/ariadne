@@ -17,7 +17,7 @@
 - [x] **Three wrapper types doing the same `call inner → overwrite Resolver` pattern** — `namedResolver` deleted; overwrite loops removed from `structuralResolver` and `crossplaneResolver` (both still exist for ownerRef/compositeTypeRef logic).
 - [x] **`extractRecursive` / `extractRawRecursive` duplication** — `extractFieldValues` now delegates to `extractRawValues` + string type filter. Single traversal implementation.
 - [x] **Export sort logic duplication** — extracted `sortedNodes` and `sortedEdges` helpers shared by `ExportDOT` and `ExportJSON`.
-- [ ] **Kyverno resolver silently ignores non-core API groups** — `kyverno.go:88,109` checks `ref.Group == ""`, so policies targeting Deployments (`apps` group) produce no edges. Comment at line 27 documents "plain kind names only" but this is easy to miss. Fix: either document more prominently or extend `extractPolicyKinds` to parse group-qualified kinds.
+- [x] **Kyverno resolver silently ignores non-core API groups** — parsed group-qualified kind strings (`"Kind"`, `"group/Kind"`, `"group/version/Kind"`) and used parsed group in both forward and reverse resolution.
 
 ## Performance
 

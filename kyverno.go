@@ -15,6 +15,8 @@
 package ariadne
 
 import (
+	"strings"
+
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -23,8 +25,10 @@ import (
 // spec.rules[*].match.resources.kinds, this resolver creates edges from
 // the policy to every instance of those kinds in the graph.
 //
-// Handles plain kind names only (e.g., "Pod", "Service"). Does not parse
-// group-qualified kinds like "apps/v1/Deployment".
+// Parses kind strings in Kyverno's standard formats:
+//   - "Kind"              → core API group (e.g., "Pod")
+//   - "group/Kind"        → explicit group (e.g., "apps/Deployment")
+//   - "group/version/Kind" → explicit group, version ignored (e.g., "apps/v1/Deployment")
 //
 // Not registered by NewDefault() — opt in with WithResolver(NewKyvernoResolver()).
 func NewKyvernoResolver() Resolver {
@@ -58,14 +62,14 @@ func (r *kyvernoResolver) resolveForward(ref ObjectRef, obj *unstructured.Unstru
 	}
 
 	var edges []Edge
-	for _, kind := range kinds {
+	for _, kr := range kinds {
 		var targets []*unstructured.Unstructured
 		if ref.Namespace != "" {
 			// Namespaced Policy: only match resources in the same namespace.
-			targets = lookup.ListInNamespace("", kind, ref.Namespace)
+			targets = lookup.ListInNamespace(kr.Group, kr.Kind, ref.Namespace)
 		} else {
 			// ClusterPolicy: match all instances across namespaces.
-			targets = lookup.List("", kind)
+			targets = lookup.List(kr.Group, kr.Kind)
 		}
 		for _, target := range targets {
 			edges = append(edges, Edge{
@@ -86,8 +90,8 @@ func (r *kyvernoResolver) resolveReverse(ref ObjectRef, obj *unstructured.Unstru
 	// Check ClusterPolicy (cluster-scoped)
 	for _, policy := range lookup.List("kyverno.io", "ClusterPolicy") {
 		kinds := extractPolicyKinds(policy)
-		for _, kind := range kinds {
-			if kind == ref.Kind && ref.Group == "" {
+		for _, kr := range kinds {
+			if kr.Kind == ref.Kind && kr.Group == ref.Group {
 				edges = append(edges, Edge{
 					From:     RefFromUnstructured(policy),
 					To:       ref,
@@ -107,8 +111,8 @@ func (r *kyvernoResolver) resolveReverse(ref ObjectRef, obj *unstructured.Unstru
 			continue
 		}
 		kinds := extractPolicyKinds(policy)
-		for _, kind := range kinds {
-			if kind == ref.Kind && ref.Group == "" {
+		for _, kr := range kinds {
+			if kr.Kind == ref.Kind && kr.Group == ref.Group {
 				edges = append(edges, Edge{
 					From:     policyRef,
 					To:       ref,
@@ -124,8 +128,33 @@ func (r *kyvernoResolver) resolveReverse(ref ObjectRef, obj *unstructured.Unstru
 	return edges
 }
 
-// extractPolicyKinds extracts the kind strings from
+// policyKindRef holds a parsed kind reference from a Kyverno policy.
+type policyKindRef struct {
+	Group string
+	Kind  string
+}
+
+// parseKyvernoKind parses a Kyverno kind string into group and kind.
+// Formats: "Kind", "group/Kind", "group/version/Kind".
+func parseKyvernoKind(s string) policyKindRef {
+	parts := strings.Split(s, "/")
+	switch len(parts) {
+	case 3:
+		return policyKindRef{Group: parts[0], Kind: parts[2]}
+	case 2:
+		return policyKindRef{Group: parts[0], Kind: parts[1]}
+	default:
+		return policyKindRef{Kind: s}
+	}
+}
+
+// extractPolicyKinds extracts and parses the kind strings from
 // spec.rules[*].match.resources.kinds.
-func extractPolicyKinds(obj *unstructured.Unstructured) []string {
-	return extractFieldValues(obj.Object, "spec.rules[*].match.resources.kinds[*]")
+func extractPolicyKinds(obj *unstructured.Unstructured) []policyKindRef {
+	raw := extractFieldValues(obj.Object, "spec.rules[*].match.resources.kinds[*]")
+	refs := make([]policyKindRef, len(raw))
+	for i, s := range raw {
+		refs[i] = parseKyvernoKind(s)
+	}
+	return refs
 }
